@@ -1,0 +1,123 @@
+<!--
+  ULTRABOT AGV - NAVIGATE WITH SAFETY BEHAVIOR TREE
+  
+  Enhanced navigation behavior tree for safety-critical AGV operation.
+  Complies with ISO 13849-1 (functional safety) and ISO 3691-4 (AGV safety).
+  
+  Key Features:
+  - Safety stop recovery (wait for operator intervention)
+  - EtherCAT fault handling (driver recovery sequence)
+  - Collision avoidance with AGV-specific escape behaviors
+  - Deadman-aware navigation (pause on release)
+  - Controlled timeouts and retry limits
+  
+  Command Flow:
+    BT Navigator → Controller → Collision Monitor → Command Mux → 
+    Command Arbitrator → Safety Supervisor → Driver
+  
+  Version: 1.0.0
+  Date: 2025-11-06
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="3" name="NavigateRecovery">
+      
+      <!-- MAIN NAVIGATION PIPELINE -->
+      <PipelineSequence name="NavigateWithReplanning">
+        
+        <!-- 1. SAFETY PRE-CHECK -->
+        <RateController hz="1.0">
+          <Sequence name="SafetyChecks">
+            <Condition ID="IsDeadmanActive" 
+                      error_code_id="{deadman_error_code}"
+                      name="CheckDeadman"/>
+            <Condition ID="IsDriverOperational" 
+                      error_code_id="{driver_error_code}"
+                      name="CheckEtherCAT"/>
+          </Sequence>
+        </RateController>
+        
+        <!-- 2. COMPUTE PATH -->
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathRecovery">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        
+        <!-- 3. SMOOTH PATH (optional) -->
+        <RateController hz="1.0">
+          <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}" smoother_id="simple_smoother"/>
+        </RateController>
+        
+        <!-- 4. FOLLOW PATH WITH COLLISION MONITORING -->
+        <RecoveryNode number_of_retries="1" name="FollowPathRecovery">
+          <Sequence name="FollowWithSafety">
+            <!-- Path validity check -->
+            <Inverter>
+              <Condition ID="IsPathValid" path="{path}"/>
+            </Inverter>
+            
+            <!-- Execute path following -->
+            <FollowPath path="{path}" controller_id="FollowPath"/>
+          </Sequence>
+          
+          <!-- Recovery: Clear local costmap and replan -->
+          <SequenceStar name="ClearAndReplan">
+            <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <Wait wait_duration="2"/>  <!-- Safety delay -->
+          </SequenceStar>
+        </RecoveryNode>
+        
+      </PipelineSequence>
+      
+      <!-- RECOVERY BEHAVIORS (executed on failure) -->
+      <ReactiveFallback name="SafetyRecoverySequence">
+        
+        <!-- Recovery 1: Wait for safety clearance (deadman, driver OK) -->
+        <Sequence name="WaitForSafetyClearance">
+          <Wait wait_duration="5"/>
+          <Condition ID="IsDeadmanActive" error_code_id="{deadman_error_code}"/>
+          <Condition ID="IsDriverOperational" error_code_id="{driver_error_code}"/>
+        </Sequence>
+        
+        <!-- Recovery 2: Rotate in place to clear costmap -->
+        <Sequence name="RotateRecovery">
+          <Spin spin_dist="1.57"/>  <!-- 90 degrees -->
+          <Wait wait_duration="2"/>
+        </Sequence>
+        
+        <!-- Recovery 3: Back up to escape local minimum -->
+        <Sequence name="BackUpRecovery">
+          <BackUp backup_dist="0.30" backup_speed="0.15"/>  <!-- 30cm slow reverse -->
+          <Wait wait_duration="2"/>
+          <ClearEntireCostmap name="ClearLocal-BackUp" service_name="local_costmap/clear_entirely_local_costmap"/>
+        </Sequence>
+        
+        <!-- Recovery 4: AGV-specific wait (operator intervention required) -->
+        <Sequence name="OperatorInterventionRequired">
+          <Action ID="PublishSafetyStatus" status="WAITING_FOR_OPERATOR"/>
+          <Wait wait_duration="30"/>  <!-- 30s wait for operator -->
+        </Sequence>
+        
+      </ReactiveFallback>
+      
+    </RecoveryNode>
+  </BehaviorTree>
+  
+  <!-- CUSTOM CONDITION NODES (to be implemented as BT plugins if needed) -->
+  <!-- 
+  <TreeNodesModel>
+    <Condition ID="IsDeadmanActive">
+      <output_port name="error_code_id"/>
+    </Condition>
+    <Condition ID="IsDriverOperational">
+      <output_port name="error_code_id"/>
+    </Condition>
+    <Action ID="PublishSafetyStatus">
+      <input_port name="status"/>
+    </Action>
+  </TreeNodesModel>
+  -->
+  
+</root>

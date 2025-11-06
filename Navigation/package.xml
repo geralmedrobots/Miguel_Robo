@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>somanet</name>
+  <version>4.1.0</version>
+  <description>ROS2 package for safe AGV control with EtherCAT motor interface, Nav2 autonomous navigation, and SLAM mapping. ISO 13849-1 compliant</description>
+
+  <maintainer email="ultrabot@example.com">Ultrabot Team</maintainer>
+
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>lifecycle_msgs</depend>
+  <depend>rclpy</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>ament_index_python</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>joy</depend>
+  
+  <!-- Dependencies for certified parameter validation (ISO 13849-1 §5.2.2) -->
+  <depend>libssl-dev</depend>
+  <depend>libyaml-cpp-dev</depend>
+
+  <!-- ========================================================================
+       NAV2 INTEGRATION DEPENDENCIES
+       ======================================================================== -->
+  <!-- Core Nav2 stack -->
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  
+  <!-- Nav2 utilities -->
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  
+  <!-- SLAM dependencies -->
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>cartographer_ros</exec_depend>
+  <exec_depend>cartographer</exec_depend>
+  
+  <!-- Sensor fusion (EKF) -->
+  <exec_depend>robot_localization</exec_depend>
+  
+  <!-- Robot description (URDF/TF) -->
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  
+  <!-- Nav2 costmap plugins -->
+  <exec_depend>nav2_costmap_2d</exec_depend>
+  
+  <!-- DWB controller (differential drive) -->
+  <exec_depend>dwb_core</exec_depend>
+  <exec_depend>dwb_critics</exec_depend>
+  <exec_depend>dwb_plugins</exec_depend>
+  
+  <!-- NavFn planner -->
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  
+  <!-- Launch dependencies -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

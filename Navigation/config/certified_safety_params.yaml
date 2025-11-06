@@ -1,0 +1,118 @@
+# Certified Safety Parameters
+# Version: 3.0.1
+# Date: 2025-10-28
+# 
+# ⚠️  WARNING: This file contains CERTIFIED safety parameters
+# ⚠️  DO NOT MODIFY without proper authorization and recertification
+# ⚠️  Any modification will invalidate the SHA-256 hash and prevent system startup
+#
+# Compliance:
+# - ISO 13849-1 §5.2.2: Safety parameters must be protected against unauthorized changes
+# - IEC 62304 §5.1.1: Configuration management of safety-critical parameters
+# - FDA 21 CFR Part 11: Electronic records must ensure data integrity
+
+# ============================================================================
+# CERTIFICATION METADATA
+# ============================================================================
+certification:
+  # SHA-256 hash of all safety_limits parameters
+  # Computed as: SHA256("max_angular_acceleration=1.000000;max_angular_velocity=1.000000;max_linear_acceleration=0.500000;max_linear_velocity=1.000000;plausibility_threshold=0.200000;watchdog_timeout=0.500000;")
+  hash: "b5eb5ce39ef82d5129221df987110c3334b84e6752d6af9718e017c263884e76"
+  hmac: "9b95d1925fba8331d366c231954dc23df35660fa788d2fd6aa0c2d88c661b300"
+  
+  # Certification date (ISO 8601 format)
+  date: "2025-10-31T14:36:46Z"
+  
+  # Certifying authority
+  certified_by: "Internal Safety Team (Pre-TÜV)"
+  
+  # Unique certificate identifier
+  certificate_id: "ULTRABOT-2025-SAFETY-002"
+  
+  # Certificate expiration date (1 year from certification)
+  valid_until: "2026-10-31T14:36:46Z"
+  
+  # Software version this certification applies to
+  project_version: "3.0.1"
+
+# ============================================================================
+# SAFETY-CRITICAL PARAMETERS
+# ============================================================================
+# These values are CERTIFIED and correspond to the SHA-256 hash above
+# Any modification requires:
+# 1. Risk assessment (FMEA update)
+# 2. Safety review by qualified engineer
+# 3. Recertification and new hash generation
+# 4. Documentation update (traceability matrix)
+
+safety_limits:
+  max_linear_velocity:
+    value: 1.0
+    unit: "m/s"
+    standard: "ISO 3691-4 §5.2.5 (AGV manual mode: 0.3-1.0 m/s)"
+    rationale: "Maximum safe speed for indoor AGV operation with obstacle detection"
+    
+  max_angular_velocity:
+    value: 1.0
+    unit: "rad/s"
+    standard: "ISO 3691-4 §5.2.5 (AGV rotation speed)"
+    rationale: "Maximum safe rotation speed (≈57°/s) for controlled turning"
+    
+  max_linear_acceleration:
+    value: 0.5
+    unit: "m/s²"
+    standard: "ISO 3691-4 §5.2.5 (AGV acceleration limits)"
+    rationale: "Prevents sudden starts/stops that could destabilize payload"
+    
+  max_angular_acceleration:
+    value: 1.0
+    unit: "rad/s²"
+    standard: "ISO 3691-4 §5.2.5 (AGV angular acceleration)"
+    rationale: "Prevents sudden rotation changes"
+    
+  plausibility_threshold:
+    value: 0.2
+    unit: "m/s"
+    standard: "ISO 3691-4 §5.3.1 (Velocity monitoring)"
+    rationale: "Max difference between commanded and actual velocity before emergency stop"
+    
+  watchdog_timeout:
+    value: 0.5
+    unit: "seconds"
+    standard: "IEC 61508 SIL 1 (0.5-1.0s typical for AGV)"
+    rationale: "Maximum time without commands before automatic stop"
+
+# ============================================================================
+# CERTIFICATION NOTES
+# ============================================================================
+# - This configuration has been reviewed for ISO 13849-1 compliance
+# - Performance Level: PL d (Category 3)
+# - Safety Integrity Level: SIL 1
+# - Risk assessment reference: FMEA-ULTRABOT-2025-001
+# - Approved by: [To be filled by safety officer]
+# - Next review date: 2026-04-28 (6-month review cycle)
+
+# ============================================================================
+# AUDIT TRAIL
+# ============================================================================
+# Version  Date        Author              Change Description              Hash
+# -------  ----------  ------------------  ------------------------------  -------
+# 1.0.0    2025-10-28  Safety Team         Initial certification           d4f8e7b
+# 
+# Future changes will be logged here with new hash values
+
+# ============================================================================
+# INSTRUCTIONS FOR RECERTIFICATION
+# ============================================================================
+# If parameters need to be changed:
+# 
+# 1. Update values in safety_limits section above
+# 2. Run: python scripts/generate_certification_hash.py
+# 3. Copy new hash to certification.hash field
+# 4. Update certification.date to current date
+# 5. Increment certificate_id counter
+# 6. Update project_version to match package.xml
+# 7. Document change in audit trail above
+# 8. Commit with message: "cert: update safety parameters [certificate_id]"
+# 9. Notify safety officer for approval
+# 10. Run validation tests before deployment

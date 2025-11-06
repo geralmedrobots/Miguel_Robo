@@ -1,0 +1,120 @@
+<!--
+  ULTRABOT AGV - NAVIGATE THROUGH POSES WITH SAFETY BEHAVIOR TREE
+  
+  Multi-waypoint navigation with safety monitoring for industrial AGV.
+  Suitable for warehouse operations with predefined routes.
+  
+  Key Features:
+  - Sequential waypoint navigation with progress monitoring
+  - Safety checks between waypoints
+  - Pause/resume on deadman release
+  - Abort on critical safety events
+  - Progress reporting for fleet management
+  
+  Version: 1.0.0
+  Date: 2025-11-06
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="2" name="NavigateThroughPosesRecovery">
+      
+      <!-- MAIN MULTI-WAYPOINT PIPELINE -->
+      <PipelineSequence name="NavigateThroughPosesWithSafety">
+        
+        <!-- 1. SAFETY PRE-CHECK -->
+        <RateController hz="1.0">
+          <Sequence name="InitialSafetyChecks">
+            <Condition ID="IsDeadmanActive" error_code_id="{deadman_error_code}"/>
+            <Condition ID="IsDriverOperational" error_code_id="{driver_error_code}"/>
+          </Sequence>
+        </RateController>
+        
+        <!-- 2. COMPUTE PATH THROUGH POSES -->
+        <RateController hz="0.5">
+          <RecoveryNode number_of_retries="1" name="ComputePathThroughPosesRecovery">
+            <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Poses" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        
+        <!-- 3. SMOOTH FULL PATH -->
+        <RateController hz="0.5">
+          <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}" smoother_id="simple_smoother"/>
+        </RateController>
+        
+        <!-- 4. FOLLOW PATH WITH CONTINUOUS SAFETY MONITORING -->
+        <RecoveryNode number_of_retries="2" name="FollowPathThroughPosesRecovery">
+          <Sequence name="FollowWithContinuousSafety">
+            
+            <!-- Continuous safety monitoring during path execution -->
+            <RateController hz="2.0">
+              <ReactiveFallback name="SafetyMonitoredExecution">
+                
+                <!-- Check for safety events that require immediate pause -->
+                <Sequence name="CriticalSafetyCheck">
+                  <Inverter>
+                    <Condition ID="IsSafetyStopActive"/>
+                  </Inverter>
+                  <Inverter>
+                    <Condition ID="IsCollisionDetected"/>
+                  </Inverter>
+                </Sequence>
+                
+                <!-- Execute path following if safe -->
+                <FollowPath path="{path}" controller_id="FollowPath"/>
+                
+                <!-- If safety issue: pause and wait -->
+                <Sequence name="SafetyPause">
+                  <Action ID="PublishSafetyStatus" status="PAUSED_SAFETY_EVENT"/>
+                  <Wait wait_duration="3"/>
+                </Sequence>
+                
+              </ReactiveFallback>
+            </RateController>
+            
+            <!-- Verify path validity -->
+            <Inverter>
+              <Condition ID="IsPathValid" path="{path}"/>
+            </Inverter>
+            
+          </Sequence>
+          
+          <!-- Recovery: Clear costmap and attempt continuation -->
+          <SequenceStar name="ClearAndContinue">
+            <ClearEntireCostmap name="ClearLocalCostmap-Poses" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <Wait wait_duration="3"/>
+            <Condition ID="IsDeadmanActive" error_code_id="{deadman_error_code}"/>
+          </SequenceStar>
+          
+        </RecoveryNode>
+        
+      </PipelineSequence>
+      
+      <!-- RECOVERY BEHAVIORS FOR MULTI-WAYPOINT NAVIGATION -->
+      <ReactiveFallback name="MultiWaypointRecovery">
+        
+        <!-- Recovery 1: Replan from current position -->
+        <Sequence name="ReplanFromCurrent">
+          <Action ID="TruncatePathToCurrent" path="{path}"/>
+          <Wait wait_duration="2"/>
+          <ComputePathThroughPoses goals="{remaining_goals}" path="{path}" planner_id="GridBased"/>
+        </Sequence>
+        
+        <!-- Recovery 2: Skip problematic waypoint -->
+        <Sequence name="SkipWaypoint">
+          <Action ID="RemoveCurrentGoal" goals="{goals}"/>
+          <Action ID="PublishSafetyStatus" status="WAYPOINT_SKIPPED"/>
+          <Wait wait_duration="2"/>
+        </Sequence>
+        
+        <!-- Recovery 3: Abort mission and return to safe state -->
+        <Sequence name="AbortMission">
+          <Action ID="PublishSafetyStatus" status="MISSION_ABORTED"/>
+          <Action ID="StopRobot"/>
+        </Sequence>
+        
+      </ReactiveFallback>
+      
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

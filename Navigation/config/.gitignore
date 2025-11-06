@@ -1,0 +1,3 @@
+# Ignore sensitive configuration files
+cert.key
+maintenance_pins.yaml

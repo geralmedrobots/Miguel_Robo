@@ -1,0 +1,32 @@
+somanet_node:
+  ros__parameters:
+    # Geometry (ISO 13849-1 validated ranges)
+    # RANGE VÁLIDO: [0.1, 2.0] m (AGVs típicos)
+    distance_wheels: 0.5           # meters
+    # RANGE VÁLIDO: [0.05, 0.5] m (rodas industriais)
+    wheel_diameter: 0.17           # meters
+
+    # Motor polarity (ISO 13849-1 §7.2 - correct sign convention)
+    # Set to -1 if motor is wired with inverted polarity
+    # Default: +1 for both (normal polarity)
+    left_wheel_polarity: 1         # +1 = normal, -1 = inverted
+    right_wheel_polarity: 1        # +1 = normal, -1 = inverted
+    # NOTE: If robot rotates opposite direction when commanded angular.z > 0,
+    #       try inverting right_wheel_polarity to -1
+
+    # Safety limits (ISO 3691-4 AGV standards)
+    # RANGE VÁLIDO: [0.01, 5.0] m/s
+    max_linear_vel: 2.0            # m/s
+    # RANGE VÁLIDO: [0.01, 10.0] rad/s
+    max_angular_vel: 3.0           # rad/s
+
+    # Timing (real-time control constraints)
+    # RANGE VÁLIDO: [0.01, 10.0] s
+    cmd_watchdog_timeout: 0.5      # seconds without cmd_vel -> zero wheel commands
+    # RANGE VÁLIDO: [0.001, 1.0] s
+    delta_t_warn_threshold: 0.1    # warn if odom delta_t exceeds this
+
+    # Frames and TF
+    odom_frame_id: "odom"
+    child_frame_id: "base_link"
+    publish_tf: true

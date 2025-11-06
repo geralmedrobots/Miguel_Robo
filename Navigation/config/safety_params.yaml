@@ -1,0 +1,251 @@
+# Safety Parameters Configuration
+# Version: 2.0.0
+# Date: 2025-10-28
+# Compliance: ISO 13849-1/-2, ISO 3691-4, IEC 61508
+
+# ============================================================================
+# VELOCITY LIMITS (Safety-critical)
+# ============================================================================
+# Maximum velocities enforced by safety supervisor
+# These limits MUST be set according to risk assessment (ISO 14971)
+
+safety_supervisor:
+  ros__parameters:
+    # Linear velocity limit (m/s)
+    # Typical AGV range: 0.5-2.0 m/s depending on environment
+    # ISO 3691-4 manual mode: 0.3-1.0 m/s recommended
+    max_linear_velocity: 1.0
+    
+    # Angular velocity limit (rad/s)
+    # Typical AGV range: 0.5-2.0 rad/s
+    max_angular_velocity: 1.0
+    
+    # Maximum acceleration limits (ISO 3691-4 Section 5.2.5)
+    # Linear acceleration limit (m/s²)
+    # ISO 3691-4 recommends: 0.5-1.5 m/s² for AGVs
+    max_linear_acceleration: 0.5
+    
+    # Angular acceleration limit (rad/s²)
+    max_angular_acceleration: 1.0
+    
+    # Plausibility check threshold (m/s)
+    # Difference between commanded and actual velocity that triggers stop
+    # ISO 3691-4: Requires velocity monitoring
+    plausibility_threshold: 0.2
+    
+    # Watchdog timeout (seconds)
+    # Time without commands before emergency stop
+    # EN 61800-5-2: Recommended 0.5-1.0s for AGVs
+    watchdog_timeout: 0.5
+    
+    # Require deadman button
+    # ISO 3691-4: Mandatory for manual mode
+    require_deadman: true
+    
+    # Enable plausibility checking
+    # Compares commanded vs actual velocity
+    enable_plausibility_check: true
+    
+    # Enable rate limiting (acceleration limits)
+    # Prevents sudden velocity changes
+    enable_rate_limiting: true
+
+# ============================================================================
+# TELEOPERATION PARAMETERS
+# ============================================================================
+
+teleop_joy:
+  ros__parameters:
+    # Joystick axis mapping (depends on controller type)
+    axis_linear: 1        # Left stick vertical
+    axis_angular: 2       # Right stick horizontal
+    axis_throttle: 5      # R2 trigger
+    
+    # Deadman button (must be held to move)
+    # ISO 3691-4: Three-position enabling device
+    deadman_button: 5     # R1 button
+    require_deadman: true
+    
+    # Velocity scaling factors
+    # Adjust based on motor characteristics
+    scale_linear: 1000.0  # mRPM for EtherCAT motors
+    scale_angular: 1000.0 # mRPM for EtherCAT motors
+    
+    # Command limits (same as safety supervisor)
+    max_linear_cmd: 1.0
+    max_angular_cmd: 1.0
+    
+    # Watchdog timeout
+    watchdog_timeout: 0.5
+    
+    # Operator identification for audit trail
+    operator_id: "operator_001"
+
+teleop_keyboard:
+  ros__parameters:
+    # Initial speeds
+    speed: 0.5            # m/s
+    turn: 0.5             # rad/s
+    
+    # Maximum speeds (safety limits)
+    max_linear_speed: 1.0
+    max_angular_speed: 1.0
+    
+    # Deadman requirement
+    require_deadman: true
+    
+    # Watchdog timeout
+    watchdog_timeout: 0.5
+    
+    # Operator identification
+    operator_id: "operator_001"
+
+# ============================================================================
+# REDUNDANCY AND FAIL-SAFE
+# ============================================================================
+
+# Safety-related topics QoS configuration
+# RELIABLE + TRANSIENT_LOCAL for safety-critical commands
+safety_qos:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 10
+
+# Emergency stop configuration
+emergency_stop:
+  # Hardware E-stop integration
+  enable_hardware_estop: true
+  estop_input_pin: 12
+  
+  # Software emergency stop channels
+  enable_software_estop: true
+  estop_topics:
+    - /emergency_stop
+    - /safety_stop
+  
+  # Recovery procedure
+  require_manual_reset: true
+  reset_timeout: 5.0  # seconds
+
+# ============================================================================
+# DIAGNOSTIC AND MONITORING
+# ============================================================================
+
+diagnostics:
+  # Publication rate for diagnostic messages
+  publish_rate: 1.0  # Hz
+  
+  # Diagnostic levels
+  # OK: 0, WARN: 1, ERROR: 2, STALE: 3
+  error_threshold: 2
+  
+  # Monitored parameters
+  monitor:
+    - ethercat_status
+    - cycle_latency
+    - watchdog_status
+    - odometry_error
+    - deadman_status
+    - plausibility_check
+
+# ============================================================================
+# CYBERSECURITY (AI Act, IEC 62443)
+# ============================================================================
+
+security:
+  # Enable ROS 2 Security (SROS2)
+  enable_sros2: false  # Set to true for production
+  
+  # Namespace isolation
+  use_namespace: true
+  namespace: "/ultrabot_agv"
+  
+  # Protected topics (require authentication)
+  protected_topics:
+    - /wheel_cmd_safe
+    - /safety_stop
+    - /emergency_stop
+    - /diagnostics
+  
+  # Logging and audit trail
+  enable_audit_log: true
+  audit_log_path: "/var/log/ultrabot/"
+  
+  # Session management
+  max_session_duration: 3600  # seconds (1 hour)
+  require_operator_id: true
+
+# ============================================================================
+# OPERATIONAL MODES (ISO 3691-4)
+# ============================================================================
+
+operational_modes:
+  # Manual mode (operator-controlled)
+  manual:
+    enabled: true
+    max_speed_factor: 1.0
+    require_deadman: true
+    enable_obstacle_detection: true
+  
+  # Semi-automatic mode
+  semi_automatic:
+    enabled: false
+    max_speed_factor: 0.8
+    require_supervisor: true
+  
+  # Automatic mode
+  automatic:
+    enabled: false
+    max_speed_factor: 1.0
+    enable_full_autonomy: false
+    require_safety_scanner: true
+
+# ============================================================================
+# CALIBRATION AND VERIFICATION
+# ============================================================================
+
+calibration:
+  # Odometry calibration parameters
+  odometry:
+    linear_scale_factor: 1.0
+    angular_scale_factor: 1.0
+    max_linear_error: 0.02   # 2% tolerance
+    max_angular_error: 0.05  # 5% tolerance
+  
+  # Verification requirements
+  verification:
+    require_yearly_calibration: true
+    require_validation_report: true
+    store_calibration_history: true
+
+# ============================================================================
+# COMPLIANCE METADATA
+# ============================================================================
+
+compliance:
+  # Applicable safety standards
+  standards:
+    - "ISO 13849-1:2023 (Safety of machinery - Safety-related parts of control systems)"
+    - "ISO 13849-2:2012 (Validation)"
+    - "ISO 3691-4:2023 (Industrial trucks - Safety requirements - Driverless trucks)"
+    - "IEC 61508:2010 (Functional safety of electrical/electronic systems)"
+    - "EN 61800-5-2:2016 (Adjustable speed electrical power drive systems - Safety functions)"
+    - "ISO 13850:2015 (Emergency stop function)"
+    - "IEC 62304:2006 (Medical device software lifecycle)"
+  
+  # Safety integrity level
+  sil_level: "SIL 1"
+  performance_level: "PL d"
+  category: "Category 3"
+  
+  # Traceability
+  configuration_version: "1.0.0"
+  configuration_hash: ""  # Will be computed automatically
+  last_modified: "2025-10-28"
+  modified_by: "safety_engineer"
+  
+  # Approval
+  approved_by: ""
+  approval_date: ""
+  next_review_date: ""

@@ -1,0 +1,23 @@
+# Maintenance Mode Audit Trail
+# ISO 3691-4 §5.2.6 - Maintenance Session Logging
+#
+# This file contains a chronological record of all maintenance sessions
+# where safety parameters were modified.
+#
+# Format:
+# - session:
+#     user: "username"
+#     entered: "2025-10-29T14:30:00Z"
+#     exited: "2025-10-29T14:35:00Z"
+#     reason: "Update velocity limits"
+#     changes:
+#       - "max_linear_velocity: 1.0 → 1.5"
+#     approved: false
+#     signature: ""
+#
+# RETENTION POLICY:
+# - Maintain logs for minimum 5 years (regulatory requirement)
+# - Do not delete or modify past entries
+# - Append-only format for audit integrity
+
+# Sessions will be appended below this line

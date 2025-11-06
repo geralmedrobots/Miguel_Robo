@@ -1,0 +1,69 @@
+# Arquivo de configuração exemplo para o pacote Somanet
+# Copie este arquivo e ajuste conforme necessário
+
+# Configurações do Robô
+robot:
+  # Distância entre as rodas em metros
+  # RANGE VÁLIDO: [0.1, 2.0] m (validado para AGVs típicos)
+  distance_wheels: 0.5
+  
+  # Diâmetro das rodas em metros
+  # RANGE VÁLIDO: [0.05, 0.5] m (validado para rodas industriais)
+  wheel_diameter: 0.17
+  
+  # Fatores de ajuste de velocidade (para compensar diferenças entre motores)
+  adjust_velocity_left: 1.0
+  adjust_velocity_right: 1.0
+
+# Configurações EtherCAT
+ethercat:
+  # OBRIGATÓRIO: Interface de rede para EtherCAT
+  # Descubra interfaces disponíveis com: ip link show
+  # Exemplos comuns: eth0, eth1, enp89s0, eno1
+  # IMPORTANTE: Interface deve estar UP mas SEM endereço IP
+  #   sudo ip link set <interface> up
+  #   sudo ip addr flush dev <interface>
+  interface: "enp89s0"
+  
+  # Timeout em microsegundos
+  timeout: 500
+
+# Limites de Segurança
+safety:
+  # Velocidade máxima em mRPM
+  max_velocity: 20000
+  
+  # Velocidade de teste inicial (recomendado começar baixo)
+  test_velocity: 500
+
+# Configurações de Teleoperação
+teleop:
+  keyboard:
+    # Velocidade base para controle por teclado
+    speed: 0.5
+    turn: 0.5
+    repeat_rate: 0.0
+    
+  joystick:
+    # Mapeamento dos eixos do joystick
+    axis_linear: 1
+    axis_angular: 2
+    
+    # Escalas de velocidade (em mRPM)
+    scale_linear: 10000.0
+    scale_angular: 5000.0
+
+    # Segurança
+    deadman_button: 5          # botão que deve estar pressionado para permitir movimento
+    require_deadman: true      # se false, ignora deadman (apenas para bancada)
+    max_linear_cmd: 10000.0    # clamp do comando linear (mRPM)
+    max_angular_cmd: 5000.0    # clamp do comando angular (mRPM)
+
+# Configurações de Odometria
+odometry:
+  # Frame IDs
+  frame_id: "odom"
+  child_frame_id: "base_link"
+  
+  # Taxa de publicação (Hz)
+  publish_rate: 50.0

@@ -1,0 +1,162 @@
+### Extended Kalman Filter Configuration
+### Fuses wheel odometry for improved state estimation
+### ISO 13849-1 compliant sensor fusion
+
+ekf_filter_node:
+  ros__parameters:
+    # ========================================================================
+    # FREQUENCY AND PROCESSING
+    # ========================================================================
+    frequency: 50.0  # Hz - EKF update rate (match safety supervisor: 50 Hz)
+    sensor_timeout: 0.1  # seconds - timeout for sensor data
+    two_d_mode: true  # Differential drive AGV (no z-axis motion)
+    
+    # ========================================================================
+    # COORDINATE FRAMES
+    # ========================================================================
+    # World frame: odom (local, drift-prone odometry)
+    # Body frame: base_link (robot center)
+    # EKF publishes: odom -> base_link transform
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom  # Use odom as world frame (no GPS/absolute positioning)
+    
+    # ========================================================================
+    # TRANSFORM PUBLISHING
+    # ========================================================================
+    # CRITICAL: publish_tf = false to avoid conflict with somanet_driver
+    # The driver already publishes odom -> base_link at 200 Hz
+    # EKF only provides filtered odometry on /odom_filtered topic
+    publish_tf: false  # Driver handles TF (avoid duplicate transform publishers)
+    publish_acceleration: false  # Don't publish acceleration (not needed)
+    
+    # ========================================================================
+    # ODOMETRY INPUT (from somanet_driver)
+    # ========================================================================
+    # Topic: /odom (nav_msgs/Odometry)
+    # Source: Differential drive wheel encoders
+    # Rate: 200 Hz
+    # Covariance: Distance-dependent (see odometry_calculator.cpp)
+    odom0: /odom
+    odom0_config: [
+      true,   # x position
+      true,   # y position
+      false,  # z position (2D mode)
+      false,  # roll (2D mode)
+      false,  # pitch (2D mode)
+      true,   # yaw (heading)
+      true,   # x velocity
+      true,   # y velocity
+      false,  # z velocity (2D mode)
+      false,  # roll velocity (2D mode)
+      false,  # pitch velocity (2D mode)
+      true,   # yaw velocity (angular velocity)
+      false,  # x acceleration
+      false,  # y acceleration
+      false   # z acceleration
+    ]
+    
+    # Differential mode: integrate velocities for position estimation
+    # This improves accuracy when position measurements have high uncertainty
+    odom0_differential: false  # Use absolute position from encoders
+    
+    # Queue size for time synchronization
+    odom0_queue_size: 10
+    
+    # Remove gravitational acceleration (not applicable for ground robot)
+    odom0_remove_gravitational_acceleration: false
+    
+    # ========================================================================
+    # PROCESS NOISE COVARIANCE
+    # ========================================================================
+    # Models uncertainty in robot motion between measurements
+    # Higher values = trust measurements more than model
+    # Tuned for differential drive AGV with moderate wheel slip
+    process_noise_covariance: [
+      0.05,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # x
+      0.0,   0.05,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # y
+      0.0,   0.0,   0.06,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # z (not used)
+      0.0,   0.0,   0.0,   0.03,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # roll (not used)
+      0.0,   0.0,   0.0,   0.0,   0.03,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # pitch (not used)
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.06,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # yaw
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.025, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # x velocity
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.025, 0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # y velocity
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.04,  0.0,   0.0,   0.0,   0.0,   0.0,   0.0,  # z velocity (not used)
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.01,  0.0,   0.0,   0.0,   0.0,   0.0,  # roll velocity (not used)
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.01,  0.0,   0.0,   0.0,   0.0,  # pitch velocity (not used)
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.02,  0.0,   0.0,   0.0,  # yaw velocity
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.01,  0.0,   0.0,  # x accel (not used)
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.01,  0.0,  # y accel (not used)
+      0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.015 # z accel (not used)
+    ]
+    
+    # ========================================================================
+    # INITIAL STATE COVARIANCE
+    # ========================================================================
+    # Uncertainty in initial robot state
+    # Higher values = more uncertainty at startup
+    initial_estimate_covariance: [
+      1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # x (1m uncertainty)
+      0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # y (1m uncertainty)
+      0.0,  0.0,  1e-9, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # z (not used)
+      0.0,  0.0,  0.0,  1e-9, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # roll (not used)
+      0.0,  0.0,  0.0,  0.0,  1e-9, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # pitch (not used)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # yaw (0.5 rad = ~30° uncertainty)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # x velocity
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # y velocity
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1e-9, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  # z velocity (not used)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1e-9, 0.0,  0.0,  0.0,  0.0,  0.0,  # roll velocity (not used)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1e-9, 0.0,  0.0,  0.0,  0.0,  # pitch velocity (not used)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  # yaw velocity
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1e-9, 0.0,  0.0,  # x accel (not used)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1e-9, 0.0,  # y accel (not used)
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  1e-9  # z accel (not used)
+    ]
+    
+    # ========================================================================
+    # ADVANCED SETTINGS
+    # ========================================================================
+    # Mahalanobis distance threshold for outlier rejection
+    # Higher = more tolerant to outliers (keep if < threshold)
+    mahalanobis_threshold: 5.0  # Standard: reject if Mahalanobis distance > 5.0
+    
+    # Use control input for prediction (not applicable - no IMU)
+    use_control: false
+    
+    # Smooth Lagged Data (if true, uses rauch-tung-striebel smoother)
+    # Better accuracy but adds latency - disable for real-time control
+    smooth_lagged_data: false
+    
+    # History length for smoothing (not used if smooth_lagged_data = false)
+    history_length: 0
+    
+    # ========================================================================
+    # DEBUGGING
+    # ========================================================================
+    # Enable for detailed logs (disable in production for performance)
+    print_diagnostics: false
+    
+    # Debug output to file (useful for offline analysis)
+    # debug_out_file: /tmp/ekf_debug.txt
+
+# ========================================================================
+# NOTES FOR FUTURE SENSOR FUSION
+# ========================================================================
+# To add IMU (gyroscope + accelerometer):
+#   1. Add imu0: /imu/data
+#   2. Configure imu0_config: [false, false, false, false, false, true, ...]
+#      (typically fuse: yaw, yaw_velocity, x_accel, y_accel)
+#   3. Set imu0_differential: false
+#   4. Set imu0_remove_gravitational_acceleration: true
+#
+# To add GPS (outdoor navigation):
+#   1. Convert GPS to /odometry/gps (use navsat_transform_node)
+#   2. Add odom1: /odometry/gps
+#   3. Configure odom1_config for absolute position
+#   4. Change world_frame: map (for global localization)
+#
+# To add visual odometry (camera):
+#   1. Add odom2: /visual_odometry/odom
+#   2. Configure odom2_config based on sensor reliability
+#   3. Tune odom2_relative: true (if drift-prone)

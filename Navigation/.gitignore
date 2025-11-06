@@ -1,0 +1,47 @@
+# ROS2 Build Files
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+*.egg
+
+# C++
+*.o
+*.a
+*.so
+*.exe
+*.out
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ROS2 Bag Files
+*.db3
+*.bag
+
+# Temporary Files
+*.tmp
+*.bak
+*.log
+
+# System Files
+Thumbs.db
+.directory
+
+# Backup Files
+*~
+*.orig
+*.rej
