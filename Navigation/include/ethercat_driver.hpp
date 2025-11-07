@@ -121,6 +121,7 @@ private:
     // Statistics
     std::atomic<uint64_t> cycle_count_{0};
     std::atomic<double> avg_cycle_time_us_{5000.0};
+    std::atomic<uint64_t> cycle_overrun_count_{0};
 
     // Callback (FIX PROBLEM 6: NO MUTEX IN RT LOOP!)
     // SAFETY: Must be lock-free (atomic pointer swap)
