@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 
 CertifiedParamsValidator::CertifiedParamsValidator(
     const std::string& config_path,
@@ -24,6 +25,14 @@ bool CertifiedParamsValidator::loadAndValidate() {
 
         auto cert = config["certification"];
         cert_info_.hash = cert["hash"].as<std::string>();
+        if (cert["hash_algorithm"]) {
+            cert_info_.hash_algorithm = cert["hash_algorithm"].as<std::string>();
+        } else {
+            cert_info_.hash_algorithm = "SHA-256/HMAC-SHA256";
+            RCLCPP_DEBUG(logger_,
+                "No hash_algorithm specified in certification metadata. Defaulting to %s",
+                cert_info_.hash_algorithm.c_str());
+        }
         cert_info_.date = cert["date"].as<std::string>();
         cert_info_.certified_by = cert["certified_by"].as<std::string>();
         cert_info_.certificate_id = cert["certificate_id"].as<std::string>();
@@ -36,6 +45,7 @@ bool CertifiedParamsValidator::loadAndValidate() {
             return false;
         }
 
+        params_.clear();
         auto limits = config["safety_limits"];
         for (const auto& param : limits) {
             std::string name = param.first.as<std::string>();
@@ -99,6 +109,25 @@ bool CertifiedParamsValidator::loadAndValidate() {
             RCLCPP_FATAL(logger_, "  Computed HMAC: %s", computed_hmac.c_str());
             RCLCPP_FATAL(logger_, "  → Possible unauthorized modification with recomputed hash");
             return false;
+        }
+
+        expected_hmac_ = expected_hmac;
+        loaded_secret_ = secret;
+
+        try {
+            cert_file_timestamp_ = std::filesystem::last_write_time(config_path_);
+        } catch (const std::filesystem::filesystem_error& e) {
+            RCLCPP_WARN(logger_,
+                "Failed to read timestamp for certified parameters file: %s", e.what());
+            cert_file_timestamp_.reset();
+        }
+
+        try {
+            secret_file_timestamp_ = std::filesystem::last_write_time(secret_path_);
+        } catch (const std::filesystem::filesystem_error& e) {
+            RCLCPP_WARN(logger_,
+                "Failed to read timestamp for secret key file: %s", e.what());
+            secret_file_timestamp_.reset();
         }
 
         // Check expiration
@@ -218,12 +247,114 @@ time_t CertifiedParamsValidator::parseISO8601(const std::string& date_str) const
     struct tm tm = {0};
     std::istringstream ss(date_str);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
-    
+
     if (ss.fail()) {
         RCLCPP_WARN(logger_, "Failed to parse date: %s (using default +1 year expiration)", date_str.c_str());
         // Return far future to avoid false expiration
         return std::time(nullptr) + (365 * 24 * 3600);  // +1 year
     }
-    
+
     return std::mktime(&tm);
+}
+
+bool CertifiedParamsValidator::validateRuntime(std::string* failure_reason, bool* reloaded)
+{
+    if (reloaded) {
+        *reloaded = false;
+    }
+
+    try {
+        if (cert_file_timestamp_) {
+            const auto current_time = std::filesystem::last_write_time(config_path_);
+            if (current_time != *cert_file_timestamp_) {
+                RCLCPP_INFO(logger_,
+                    "Certified parameters file changed on disk - reloading metadata");
+                if (!loadAndValidate()) {
+                    if (failure_reason) {
+                        *failure_reason = "Failed to reload modified certified parameters";
+                    }
+                    return false;
+                }
+                if (reloaded) {
+                    *reloaded = true;
+                }
+                return true;
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        if (failure_reason) {
+            *failure_reason = std::string("Unable to stat certified parameters file: ") + e.what();
+        }
+        return false;
+    }
+
+    try {
+        if (secret_file_timestamp_) {
+            const auto current_secret_time = std::filesystem::last_write_time(secret_path_);
+            if (current_secret_time != *secret_file_timestamp_) {
+                RCLCPP_INFO(logger_,
+                    "Secret key file changed on disk - reloading metadata");
+                if (!loadAndValidate()) {
+                    if (failure_reason) {
+                        *failure_reason = "Failed to reload modified secret key";
+                    }
+                    return false;
+                }
+                if (reloaded) {
+                    *reloaded = true;
+                }
+                return true;
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        if (failure_reason) {
+            *failure_reason = std::string("Unable to stat secret key file: ") + e.what();
+        }
+        return false;
+    }
+
+    return validateCachedData(failure_reason);
+}
+
+bool CertifiedParamsValidator::validateCachedData(std::string* failure_reason)
+{
+    if (canonical_representation_.empty()) {
+        if (failure_reason) {
+            *failure_reason = "Canonical representation is empty";
+        }
+        return false;
+    }
+
+    const std::string current_hash = computeSHA256(canonical_representation_);
+    if (current_hash != cert_info_.hash) {
+        if (failure_reason) {
+            *failure_reason = "Cached hash mismatch";
+        }
+        return false;
+    }
+
+    if (expected_hmac_.empty() || loaded_secret_.empty()) {
+        if (failure_reason) {
+            *failure_reason = "HMAC metadata unavailable";
+        }
+        return false;
+    }
+
+    const std::string computed_hmac = computeHMAC(canonical_representation_, loaded_secret_);
+    if (computed_hmac.size() != expected_hmac_.size() ||
+        CRYPTO_memcmp(computed_hmac.data(), expected_hmac_.data(), expected_hmac_.size()) != 0) {
+        if (failure_reason) {
+            *failure_reason = "HMAC mismatch";
+        }
+        return false;
+    }
+
+    if (!isCertificationValid()) {
+        if (failure_reason) {
+            *failure_reason = "Certification expired";
+        }
+        return false;
+    }
+
+    return true;
 }

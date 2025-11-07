@@ -29,6 +29,10 @@
 #include <iostream>
 #include <cstdlib>  // For exit()
 #include <fstream>  // For file existence checks
+#include <functional>
+#include <cctype>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
+#include <rclcpp/parameter.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include "certified_params_validator.hpp"
 #include "maintenance_mode_manager.hpp"
@@ -77,7 +81,7 @@ private:
   bool require_deadman_;
   bool enable_plausibility_check_;
   bool enable_rate_limiting_;     // Enable acceleration limiting
-  
+
   // State variables
   bool deadman_active_;
   bool safety_stop_active_;
@@ -95,7 +99,16 @@ private:
   uint64_t cmd_saturated_count_;
   uint64_t plausibility_failures_;
   uint64_t watchdog_timeouts_;
-  
+
+  // Certification runtime validation control
+  bool runtime_cert_validation_enabled_;
+  bool allow_cert_bypass_;
+  double cert_validation_grace_period_;
+  int cert_validation_max_retries_;
+  int consecutive_cert_validation_failures_;
+  bool cert_failure_window_active_;
+  rclcpp::Time cert_failure_window_start_;
+
   // Publishers and subscribers
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr safe_cmd_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Bool>::SharedPtr safety_stop_pub_;
@@ -116,7 +129,7 @@ private:
   
   // Maintenance mode management (ISO 3691-4 §5.2.6)
   std::unique_ptr<MaintenanceModeManager> maintenance_mgr_;
-  
+
   // Callback for runtime certificate validation
   void certValidationTimerCallback();
 
@@ -141,7 +154,13 @@ SafetySupervisor::SafetySupervisor()
     cmd_rejected_count_(0),
     cmd_saturated_count_(0),
     plausibility_failures_(0),
-    watchdog_timeouts_(0)
+    watchdog_timeouts_(0),
+    runtime_cert_validation_enabled_(true),
+    allow_cert_bypass_(false),
+    cert_validation_grace_period_(5.0),
+    cert_validation_max_retries_(3),
+    consecutive_cert_validation_failures_(0),
+    cert_failure_window_active_(false)
 {
   RCLCPP_DEBUG(this->get_logger(), "SafetySupervisor lifecycle node constructed");
 }
@@ -163,73 +182,134 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
   RCLCPP_DEBUG(this->get_logger(), "Certified parameters path: %s", cert_params_path.c_str());
   RCLCPP_DEBUG(this->get_logger(), "HMAC secret key path: %s", secret_path.c_str());
 
+  this->declare_parameter("allow_certified_param_bypass", allow_cert_bypass_);
+  this->declare_parameter("cert_validation_grace_period", cert_validation_grace_period_);
+  this->declare_parameter("cert_validation_max_retries", cert_validation_max_retries_);
+
+  this->get_parameter("allow_certified_param_bypass", allow_cert_bypass_);
+  this->get_parameter("cert_validation_grace_period", cert_validation_grace_period_);
+  this->get_parameter("cert_validation_max_retries", cert_validation_max_retries_);
+
+  if (cert_validation_grace_period_ < 0.0) {
+    RCLCPP_WARN(this->get_logger(),
+      "cert_validation_grace_period < 0 specified. Clamping to 0 (no grace period)");
+    cert_validation_grace_period_ = 0.0;
+  }
+
+  if (cert_validation_max_retries_ < 0) {
+    RCLCPP_WARN(this->get_logger(),
+      "cert_validation_max_retries < 0 specified. Clamping to 0 (no retries)");
+    cert_validation_max_retries_ = 0;
+  }
+
   // ========================================================================
   // DEPLOYMENT VERIFICATION: Check if certification files exist
   // ========================================================================
   // These files are REQUIRED for ISO 13849-1 compliance in production
   // For development/testing, see scripts/generate_certification_hash.py
-  
+
   std::ifstream cert_file_check(cert_params_path);
-  if (!cert_file_check.good()) {
-    RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: certified_safety_params.yaml NOT FOUND!");
-    RCLCPP_FATAL(this->get_logger(), "   → Expected path: %s", cert_params_path.c_str());
-    RCLCPP_FATAL(this->get_logger(), "   → This file is REQUIRED for ISO 13849-1 compliance");
-    RCLCPP_FATAL(this->get_logger(), "   → Generate using: python3 scripts/generate_certification_hash.py");
-    RCLCPP_FATAL(this->get_logger(), "   → See BUILD_GUIDE.md section 'Safety Parameter Certification'");
-    return CallbackReturn::FAILURE;
+  const bool has_cert_file = cert_file_check.good();
+  if (!has_cert_file) {
+    if (!allow_cert_bypass_) {
+      RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: certified_safety_params.yaml NOT FOUND!");
+      RCLCPP_FATAL(this->get_logger(), "   → Expected path: %s", cert_params_path.c_str());
+      RCLCPP_FATAL(this->get_logger(), "   → This file is REQUIRED for ISO 13849-1 compliance");
+      RCLCPP_FATAL(this->get_logger(), "   → Generate using: python3 scripts/generate_certification_hash.py");
+      RCLCPP_FATAL(this->get_logger(), "   → See BUILD_GUIDE.md section 'Safety Parameter Certification'");
+      return CallbackReturn::FAILURE;
+    }
+    RCLCPP_WARN(this->get_logger(),
+      "⚠️  certified_safety_params.yaml missing. Falling back to built-in safe defaults (bypass enabled)");
   }
-  
+
   std::ifstream key_file_check(secret_path);
-  if (!key_file_check.good()) {
-    RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: cert.key NOT FOUND!");
-    RCLCPP_FATAL(this->get_logger(), "   → Expected path: %s", secret_path.c_str());
-    RCLCPP_FATAL(this->get_logger(), "   → This HMAC secret key is REQUIRED for parameter validation");
-    RCLCPP_FATAL(this->get_logger(), "   → Generate using: python3 scripts/generate_certification_hash.py");
-    RCLCPP_FATAL(this->get_logger(), "   → SECURITY WARNING: Never commit cert.key to version control!");
-    RCLCPP_FATAL(this->get_logger(), "   → Deploy cert.key separately (encrypted config management recommended)");
-    return CallbackReturn::FAILURE;
+  const bool has_key_file = key_file_check.good();
+  if (!has_key_file) {
+    if (!allow_cert_bypass_) {
+      RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: cert.key NOT FOUND!");
+      RCLCPP_FATAL(this->get_logger(), "   → Expected path: %s", secret_path.c_str());
+      RCLCPP_FATAL(this->get_logger(), "   → This HMAC secret key is REQUIRED for parameter validation");
+      RCLCPP_FATAL(this->get_logger(), "   → Generate using: python3 scripts/generate_certification_hash.py");
+      RCLCPP_FATAL(this->get_logger(), "   → SECURITY WARNING: Never commit cert.key to version control!");
+      RCLCPP_FATAL(this->get_logger(), "   → Deploy cert.key separately (encrypted config management recommended)");
+      return CallbackReturn::FAILURE;
+    }
+    RCLCPP_WARN(this->get_logger(),
+      "⚠️  cert.key missing. Runtime certification checks disabled (bypass enabled)");
   }
 
-  cert_validator_ = std::make_unique<CertifiedParamsValidator>(
-      cert_params_path, secret_path, this->get_logger());
+  cert_file_check.close();
+  key_file_check.close();
 
-  if (!cert_validator_->loadAndValidate()) {
-    RCLCPP_FATAL(this->get_logger(), "❌ CRITICAL: Certified parameters validation FAILED!");
-    RCLCPP_FATAL(this->get_logger(), "   → Possible tampering detected or certificate expired");
-    RCLCPP_FATAL(this->get_logger(), "   → System CANNOT start - Safety integrity compromised");
-    RCLCPP_FATAL(this->get_logger(), "   → Regenerate certificate: python3 scripts/generate_certification_hash.py");
-    RCLCPP_FATAL(this->get_logger(), "   → Verify cert.key matches certified_safety_params.yaml");
-    return CallbackReturn::FAILURE;
+  if (!allow_cert_bypass_) {
+    cert_validator_ = std::make_unique<CertifiedParamsValidator>(
+        cert_params_path, secret_path, this->get_logger());
+  } else if (has_cert_file && has_key_file) {
+    cert_validator_ = std::make_unique<CertifiedParamsValidator>(
+        cert_params_path, secret_path, this->get_logger());
+  }
+
+  if (cert_validator_) {
+    if (!cert_validator_->loadAndValidate()) {
+      if (!allow_cert_bypass_) {
+        RCLCPP_FATAL(this->get_logger(), "❌ CRITICAL: Certified parameters validation FAILED!");
+        RCLCPP_FATAL(this->get_logger(), "   → Possible tampering detected or certificate expired");
+        RCLCPP_FATAL(this->get_logger(), "   → System CANNOT start - Safety integrity compromised");
+        RCLCPP_FATAL(this->get_logger(), "   → Regenerate certificate: python3 scripts/generate_certification_hash.py");
+        RCLCPP_FATAL(this->get_logger(), "   → Verify cert.key matches certified_safety_params.yaml");
+        return CallbackReturn::FAILURE;
+      }
+
+      RCLCPP_WARN(this->get_logger(),
+        "⚠️  Certified parameter validation failed - continuing with bypass defaults");
+      cert_validator_.reset();
+    }
+  }
+
+  runtime_cert_validation_enabled_ = static_cast<bool>(cert_validator_);
+
+  if (!cert_validator_) {
+    RCLCPP_WARN(this->get_logger(),
+      "Runtime certification enforcement disabled. Ensure this is only used for testing! (ISO 13849-1) ");
   }
 
   // ========================================================================
   // FIX PROBLEM 6: EXCEPTION HANDLING FOR getParameter()
   // ========================================================================
   // CertifiedParamsValidator::getParameter() throws std::runtime_error if parameter missing
-  try {
-    max_linear_velocity_ = cert_validator_->getParameter("max_linear_velocity");
-    max_angular_velocity_ = cert_validator_->getParameter("max_angular_velocity");
-    max_linear_acceleration_ = cert_validator_->getParameter("max_linear_acceleration");
-    max_angular_acceleration_ = cert_validator_->getParameter("max_angular_acceleration");
-    plausibility_threshold_ = cert_validator_->getParameter("plausibility_threshold");
-    watchdog_timeout_ = cert_validator_->getParameter("watchdog_timeout");
-  } catch (const std::runtime_error& e) {
-    RCLCPP_FATAL(this->get_logger(), 
-      "❌ Failed to load required certified parameter: %s", e.what());
-    RCLCPP_FATAL(this->get_logger(), 
-      "   Check that all required parameters are present in certified_safety_params.yaml");
-    return CallbackReturn::FAILURE;
-  } catch (const std::exception& e) {
-    RCLCPP_FATAL(this->get_logger(), 
-      "❌ Exception loading certified parameters: %s", e.what());
-    return CallbackReturn::FAILURE;
+  if (cert_validator_) {
+    try {
+      max_linear_velocity_ = cert_validator_->getParameter("max_linear_velocity");
+      max_angular_velocity_ = cert_validator_->getParameter("max_angular_velocity");
+      max_linear_acceleration_ = cert_validator_->getParameter("max_linear_acceleration");
+      max_angular_acceleration_ = cert_validator_->getParameter("max_angular_acceleration");
+      plausibility_threshold_ = cert_validator_->getParameter("plausibility_threshold");
+      watchdog_timeout_ = cert_validator_->getParameter("watchdog_timeout");
+    } catch (const std::runtime_error& e) {
+      RCLCPP_FATAL(this->get_logger(),
+        "❌ Failed to load required certified parameter: %s", e.what());
+      RCLCPP_FATAL(this->get_logger(),
+        "   Check that all required parameters are present in certified_safety_params.yaml");
+      return CallbackReturn::FAILURE;
+    } catch (const std::exception& e) {
+      RCLCPP_FATAL(this->get_logger(),
+        "❌ Exception loading certified parameters: %s", e.what());
+      return CallbackReturn::FAILURE;
+    }
+
+    // Get certification info for logging
+    auto cert_info = cert_validator_->getCertificationInfo();
+
+    RCLCPP_INFO(this->get_logger(), "✅ Certified parameters loaded (Cert: %s, Valid: %s)",
+      cert_info.certificate_id.c_str(), cert_info.valid_until.c_str());
+    RCLCPP_INFO(this->get_logger(),
+      "  Hash algorithm: %s", cert_info.hash_algorithm.c_str());
+  } else {
+    RCLCPP_WARN(this->get_logger(),
+      "Using built-in fallback limits: linear=%.2f angular=%.2f watchdog=%.2fs",
+      max_linear_velocity_, max_angular_velocity_, watchdog_timeout_);
   }
-
-  // Get certification info for logging
-  auto cert_info = cert_validator_->getCertificationInfo();
-
-  RCLCPP_INFO(this->get_logger(), "✅ Certified parameters loaded (Cert: %s, Valid: %s)", 
-    cert_info.certificate_id.c_str(), cert_info.valid_until.c_str());
 
   const std::string maintenance_audit_path = package_share_dir + "/config/maintenance_audit.yaml";
   const std::string maintenance_pins_path = package_share_dir + "/config/maintenance_pins.yaml";
@@ -375,9 +455,11 @@ CallbackReturn SafetySupervisor::on_activate(const rclcpp_lifecycle::State&)
     1s,
     std::bind(&SafetySupervisor::diagnosticTimerCallback, this));
 
-  cert_validation_timer_ = this->create_wall_timer(
-    1s,
-    std::bind(&SafetySupervisor::certValidationTimerCallback, this));
+  if (runtime_cert_validation_enabled_) {
+    cert_validation_timer_ = this->create_wall_timer(
+      1s,
+      std::bind(&SafetySupervisor::certValidationTimerCallback, this));
+  }
 
   last_cmd_time_ = this->now();
   last_publish_time_ = this->now();
@@ -750,6 +832,10 @@ void SafetySupervisor::watchdogTimerCallback()
  */
 void SafetySupervisor::certValidationTimerCallback()
 {
+  if (!runtime_cert_validation_enabled_) {
+    return;
+  }
+
   if (this->get_current_state().id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
     return;
   }
@@ -759,36 +845,68 @@ void SafetySupervisor::certValidationTimerCallback()
     return;
   }
 
-  // Re-validate certificate (checks hash + expiration)
-  if (!cert_validator_->loadAndValidate()) {
-    // CRITICAL: Parameters have been tampered with during runtime!
-    RCLCPP_FATAL(this->get_logger(), 
-      "🚨 RUNTIME TAMPERING DETECTED - EMERGENCY SHUTDOWN!");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   Certified parameters hash mismatch | Memory corruption/Security breach/Software bug");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   System NO LONGER SAFE - Initiating emergency stop and shutdown");
-    
-    // Trigger emergency stop (stops robot immediately)
-    emergencyStop("RUNTIME CERTIFICATE TAMPERING DETECTED");
-    
-    // Additional fatal log for forensic analysis and external monitoring
-    RCLCPP_FATAL(this->get_logger(), 
-      "ULTRABOT_SAFETY_EVENT: Runtime parameter tampering detected - certificate validation failed");
-    
-    // Shutdown ROS2 to prevent any further operation
-    rclcpp::shutdown();
-    
-    // Exit process immediately (fail-safe)
-    std::exit(EXIT_FAILURE);
+  std::string failure_reason;
+  bool reloaded = false;
+  if (!cert_validator_->validateRuntime(&failure_reason, &reloaded)) {
+    if (!cert_failure_window_active_) {
+      cert_failure_window_active_ = true;
+      cert_failure_window_start_ = this->now();
+    }
+
+    consecutive_cert_validation_failures_++;
+
+    const double failure_duration =
+      (this->now() - cert_failure_window_start_).seconds();
+
+    const bool time_limit_configured = cert_validation_grace_period_ > 0.0;
+    const bool retry_limit_configured = cert_validation_max_retries_ > 0;
+
+    const bool exceeded_time =
+      time_limit_configured && failure_duration >= cert_validation_grace_period_;
+
+    const bool exceeded_retries =
+      retry_limit_configured &&
+      consecutive_cert_validation_failures_ >= cert_validation_max_retries_;
+
+    const bool immediate_abort = !time_limit_configured && !retry_limit_configured;
+
+    RCLCPP_WARN(this->get_logger(),
+      "Runtime certification validation failed (%s). Attempt %d within %.2fs",
+      failure_reason.c_str(), consecutive_cert_validation_failures_, failure_duration);
+
+    if (immediate_abort || exceeded_time || exceeded_retries) {
+      RCLCPP_FATAL(this->get_logger(),
+        "🚨 CERTIFICATION VALIDATION FAILED PERSISTENTLY - EMERGENCY SHUTDOWN!");
+      RCLCPP_FATAL(this->get_logger(),
+        "   Failure reason: %s", failure_reason.c_str());
+      emergencyStop("RUNTIME CERTIFICATE VALIDATION FAILURE");
+      rclcpp::shutdown();
+      std::exit(EXIT_FAILURE);
+    }
+
+    return;
   }
-  
+
+  consecutive_cert_validation_failures_ = 0;
+  cert_failure_window_active_ = false;
+
   // Verify that in-memory parameters match certified values
   // This catches modifications via direct memory access (not via ROS2 params)
   double cert_max_linear_vel, cert_max_angular_vel, cert_max_linear_acc;
   double cert_max_angular_acc, cert_plausibility, cert_watchdog;
-  
+
   try {
+    if (reloaded) {
+      max_linear_velocity_ = cert_validator_->getParameter("max_linear_velocity");
+      max_angular_velocity_ = cert_validator_->getParameter("max_angular_velocity");
+      max_linear_acceleration_ = cert_validator_->getParameter("max_linear_acceleration");
+      max_angular_acceleration_ = cert_validator_->getParameter("max_angular_acceleration");
+      plausibility_threshold_ = cert_validator_->getParameter("plausibility_threshold");
+      watchdog_timeout_ = cert_validator_->getParameter("watchdog_timeout");
+      RCLCPP_INFO(this->get_logger(),
+        "Certified parameters reloaded at runtime after file change");
+    }
+
     cert_max_linear_vel = cert_validator_->getParameter("max_linear_velocity");
     cert_max_angular_vel = cert_validator_->getParameter("max_angular_velocity");
     cert_max_linear_acc = cert_validator_->getParameter("max_linear_acceleration");
