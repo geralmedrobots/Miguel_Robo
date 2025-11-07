@@ -13,6 +13,7 @@
 #include <yaml-cpp/yaml.h>
 #include <optional>
 #include <utility>
+#include <filesystem>
 #include <rclcpp/rclcpp.hpp>
 
 /**
@@ -46,6 +47,7 @@ public:
      */
     struct CertificationInfo {
         std::string hash;                // SHA-256 of all parameters
+        std::string hash_algorithm;      // Algorithm used to generate the hash/HMAC
         std::string date;                // Certification date (ISO 8601)
         std::string certified_by;        // Authority (e.g., "TÜV Rheinland")
         std::string certificate_id;      // Unique certificate ID
@@ -90,6 +92,20 @@ public:
     CertificationInfo getCertificationInfo() const;
 
     /**
+     * @brief Perform runtime validation without re-reading the files unnecessarily
+     *
+     * The validator verifies that the cached canonical representation still
+     * matches the certified hash/HMAC. If the backing files have changed on
+     * disk, they are reloaded before completing the validation.
+     *
+     * @param failure_reason Optional string pointer that receives the failure reason
+     * @param reloaded Optional flag that is set to true when the backing files
+     *        were reloaded from disk as part of this validation pass
+     * @return true when the runtime validation succeeds, false otherwise
+     */
+    bool validateRuntime(std::string* failure_reason = nullptr, bool* reloaded = nullptr);
+
+    /**
      * @brief Check if certification is still valid (not expired)
      * @return true if valid, false if expired
      */
@@ -114,12 +130,16 @@ private:
     CertificationInfo cert_info_;
     std::string canonical_representation_;
     rclcpp::Logger logger_;
+    std::optional<std::filesystem::file_time_type> cert_file_timestamp_;
+    std::optional<std::filesystem::file_time_type> secret_file_timestamp_;
+    std::string expected_hmac_;
+    std::string loaded_secret_;
 
     /**
      * @brief Compute SHA-256 hash
      * @param data Input data
      * @return Hex string of hash
-     */
+    */
     std::string computeSHA256(const std::string& data) const;
 
     /**
@@ -142,6 +162,14 @@ private:
      * @return Unix timestamp
      */
     time_t parseISO8601(const std::string& date_str) const;
+
+    /**
+     * @brief Validate cached canonical representation and secret
+     *
+     * @param failure_reason Optional string pointer to fill with the failure message
+     * @return true if the cached data is still valid
+     */
+    bool validateCachedData(std::string* failure_reason);
 };
 
 #endif // CERTIFIED_PARAMS_VALIDATOR_HPP
