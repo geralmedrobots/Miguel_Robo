@@ -27,77 +27,13 @@
 #include <memory>
 #include <cmath>
 #include <iostream>
-#include <cstdlib>  // For system(), exit()
-#include <cstring>
-#include <algorithm>
-#include <cctype>
-#include <vector>
+#include <cstdlib>  // For exit()
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include "certified_params_validator.hpp"
 #include "maintenance_mode_manager.hpp"
+#include "lifecycle_utils.hpp"
 
 using namespace std::chrono_literals;
-using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
-
-/**
- * @class SafetySupervisor
- * @brief Redundant safety layer that monitors and validates all velocity commands
- * 
- * This node implements a safety-critical supervision layer that:
- * - Validates velocity commands against configured limits
- * - Monitors deadman button state
- * - Implements watchdog timeout detection
- * - Performs plausibility checks (commanded vs actual velocity)
- * - Publishes safe commands only when all safety conditions are met
- */
-namespace
-{
-bool string_to_bool(const std::string & value)
-{
-  std::string lowered = value;
-  std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-
-  return lowered == "1" || lowered == "true" || lowered == "yes" || lowered == "on";
-}
-
-bool autostart_requested(int argc, char ** argv)
-{
-  bool cli_override = false;
-  bool autostart = false;
-
-  std::vector<const char *> filtered_args;
-  filtered_args.reserve(static_cast<size_t>(argc) + 1);
-  filtered_args.push_back(argv[0]);
-
-  for (int i = 1; i < argc; ++i) {
-    if (std::strcmp(argv[i], "--autostart") == 0) {
-      autostart = true;
-      cli_override = true;
-      continue;
-    }
-    if (std::strcmp(argv[i], "--no-autostart") == 0) {
-      autostart = false;
-      cli_override = true;
-      continue;
-    }
-    filtered_args.push_back(argv[i]);
-  }
-
-  filtered_args.push_back(nullptr);
-  int filtered_argc = static_cast<int>(filtered_args.size()) - 1;
-  rclcpp::init(filtered_argc, filtered_args.data());
-
-  if (!cli_override) {
-    if (const char * env = std::getenv("ULTRABOT_AUTOSTART")) {
-      autostart = string_to_bool(env);
-    }
-  }
-
-  return autostart;
-}
-}  // namespace
 
 class SafetySupervisor : public rclcpp_lifecycle::LifecycleNode
 {
@@ -739,8 +675,9 @@ void SafetySupervisor::watchdogTimerCallback()
           "💥 CRITICAL: %lu watchdog timeouts - SYSTEM UNSTABLE - INITIATING SHUTDOWN", 
           watchdog_timeouts_);
         
-        // Log to system journal
-        system("logger -t ultrabot_safety 'CRITICAL: Multiple watchdog timeouts - system unstable'");
+        // Additional fatal log for external monitoring systems
+        RCLCPP_FATAL(this->get_logger(), 
+          "ULTRABOT_SAFETY_EVENT: Multiple watchdog timeouts detected - system unstable");
         
         // Shutdown ROS2
         rclcpp::shutdown();
@@ -803,8 +740,9 @@ void SafetySupervisor::certValidationTimerCallback()
     // Trigger emergency stop (stops robot immediately)
     emergencyStop("RUNTIME CERTIFICATE TAMPERING DETECTED");
     
-    // Log to system journal for forensic analysis
-    system("logger -t ultrabot_safety 'CRITICAL: Runtime parameter tampering detected'");
+    // Additional fatal log for forensic analysis and external monitoring
+    RCLCPP_FATAL(this->get_logger(), 
+      "ULTRABOT_SAFETY_EVENT: Runtime parameter tampering detected - certificate validation failed");
     
     // Shutdown ROS2 to prevent any further operation
     rclcpp::shutdown();
@@ -1218,7 +1156,8 @@ int main(int argc, char** argv)
   bool autostart = false;
 
   try {
-    autostart = autostart_requested(argc, argv);
+    // Parse autostart flag and initialize rclcpp (NOTE: rclcpp::init called internally)
+    autostart = ultrabot::lifecycle_utils::autostart_requested(argc, argv);
   } catch (const std::exception& e) {
     std::cerr << "Failed to process autostart arguments: " << e.what() << std::endl;
     return 1;

@@ -338,6 +338,17 @@ if(BUILD_TESTING)
     diagnostic_msgs
   )
   
+  # Unit test: Command Multiplexer
+  ament_add_gtest(test_command_mux 
+    test/test_command_mux.cpp
+  )
+  ament_target_dependencies(test_command_mux
+    rclcpp
+    geometry_msgs
+    std_msgs
+    diagnostic_msgs
+  )
+  
   # Integration test: EtherCAT Failure Detection
   ament_add_gtest(test_ethercat_failures 
     test/test_ethercat_failures.cpp
@@ -373,6 +384,7 @@ if(BUILD_TESTING)
     test_mock_driver
     test_safety_critical
     test_command_arbitrator
+    test_command_mux
     test_safety_supervisor
     test_ethercat_failures
     DESTINATION lib/${PROJECT_NAME}

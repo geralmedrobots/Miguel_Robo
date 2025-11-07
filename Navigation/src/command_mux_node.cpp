@@ -82,7 +82,6 @@ private:
    std::mutex sources_mutex_;
 
    Priority active_priority_;
-   std::atomic<bool> force_safety_stop_{false};
 
    // Configuration parameters
    double default_timeout_sec_;

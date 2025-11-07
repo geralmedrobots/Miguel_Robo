@@ -118,6 +118,7 @@ inline void osal_usleep(uint32 usec) {
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include "odometry_calculator.hpp"
+#include "lifecycle_utils.hpp"
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 using namespace std::chrono_literals;
@@ -1009,71 +1010,17 @@ private:
             }
          }
 
-            namespace
-            {
-            bool string_to_bool(const std::string & value)
-            {
-               std::string lowered = value;
-               std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
-                  return static_cast<char>(std::tolower(c));
-               });
+int main(int argc, char * argv[])
+{
+   bool autostart = false;
 
-               return lowered == "1" || lowered == "true" || lowered == "yes" || lowered == "on";
-            }
-
-            bool autostart_requested(int argc, char ** argv)
-            {
-               bool cli_override = false;
-               bool autostart = false;
-
-               std::vector<const char *> filtered_args;
-               filtered_args.reserve(static_cast<size_t>(argc) + 1);
-               filtered_args.push_back(argv[0]);
-
-               for (int i = 1; i < argc; ++i) {
-                  if (std::strcmp(argv[i], "--autostart") == 0) {
-                     autostart = true;
-                     cli_override = true;
-                     continue;
-                  }
-                  if (std::strcmp(argv[i], "--no-autostart") == 0) {
-                     autostart = false;
-                     cli_override = true;
-                     continue;
-                  }
-                  filtered_args.push_back(argv[i]);
-               }
-
-               filtered_args.push_back(nullptr);
-               int filtered_argc = static_cast<int>(filtered_args.size()) - 1;
-               rclcpp::init(filtered_argc, filtered_args.data());
-
-               if (!cli_override) {
-                  if (const char * env = std::getenv("ULTRABOT_AUTOSTART")) {
-                     try {
-                        autostart = string_to_bool(env);
-                     } catch (const std::exception & e) {
-                        RCLCPP_WARN(rclcpp::get_logger("somanet_driver"),
-                           "Invalid ULTRABOT_AUTOSTART value '%s': %s - defaulting to false", env, e.what());
-                        autostart = false;
-                     }
-                  }
-               }
-
-               return autostart;
-            }
-            }  // namespace
-
-            int main(int argc, char * argv[])
-            {
-               bool autostart = false;
-
-               try {
-                  autostart = autostart_requested(argc, argv);
-               } catch (const std::exception & e) {
-                  std::cerr << "Failed to process autostart arguments: " << e.what() << std::endl;
-                  return 1;
-               }
+   try {
+      // Parse autostart flag and initialize rclcpp (NOTE: rclcpp::init called internally)
+      autostart = ultrabot::lifecycle_utils::autostart_requested(argc, argv);
+   } catch (const std::exception & e) {
+      std::cerr << "Failed to process autostart arguments: " << e.what() << std::endl;
+      return 1;
+   }
 
                int exit_code = 0;
 

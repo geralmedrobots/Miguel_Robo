@@ -16,12 +16,13 @@ This document describes the automated test suite for the AGV navigation system, 
 |-----------|------------|-------------------|------------|
 | **OdometryCalculator** | ✅ 12 tests | ✅ Included | ISO 13849-1 §7.7 |
 | **CommandArbitrator** | ✅ 15 tests | ✅ Included | ISO 3691-4 §5.2 |
+| **CommandMux** | ✅ 15 tests | ✅ Included | Multi-source arbitration |
 | **SafetySupervisor** | ✅ 17 tests | ✅ Included | ISO 13849-1 Cat 3/PL d |
 | **EtherCatDriver** | ✅ Mock tests | ✅ Failure detection | EN 61800-5-2 |
 | **Lifecycle Integration** | - | ✅ Startup/shutdown | ROS2 Best Practices |
 | **Safety-Critical Behavior** | - | ✅ System-level | ISO 13849-1 §5.2 |
 
-**Total Test Count:** 44+ automated tests
+**Total Test Count:** 59+ automated tests
 
 ---
 
@@ -41,6 +42,9 @@ colcon test-result --verbose
 ```bash
 # Command Arbitrator (15 tests)
 ./build/somanet/test_command_arbitrator
+
+# Command Multiplexer (15 tests)
+./build/somanet/test_command_mux
 
 # Safety Supervisor (17 tests)
 ./build/somanet/test_safety_supervisor
@@ -142,13 +146,85 @@ Total: 15 unit tests
 
 ---
 
-### 2. SafetySupervisor Tests (`test_safety_supervisor.cpp`)
+### 2. CommandMux Tests (`test_command_mux.cpp`)
+
+**Purpose:** Verify multi-source command prioritization and timeout-based arbitration.
+
+#### Test Categories
+
+##### 2.1 Priority-Based Command Selection (3 tests)
+
+- `TeleopPriorityOverridesNav2`: Manual control (1) > Autonomous (2)
+- `TeleopPriorityOverridesOther`: Manual control (1) > Other sources (3)
+- `Nav2PriorityOverridesOther`: Autonomous (2) > Other sources (3)
+
+**Rationale:** Manual intervention must always override autonomous navigation for safety.
+
+##### 2.2 Timeout Handling (2 tests)
+
+- `SourceTimeoutDeactivation`: Sources timeout after configured duration (300ms)
+- `PriorityRevertOnTimeout`: Lower priority becomes active when higher priority times out
+
+**Compliance:** Stale commands rejected (ISO 13849-1 §7.5)
+
+##### 2.3 Zero-Velocity Fallback (2 tests)
+
+- `ZeroVelocityWhenNoActiveSources`: Zero published when no sources active
+- `ZeroVelocityAfterAllSourcesTimeout`: Zero published when all sources timeout
+
+**Compliance:** Fail-safe behavior (ISO 13849-1 §5.2)
+
+##### 2.4 Status and Diagnostic Publishing (3 tests)
+
+- `StatusPublishesActiveSource`: Current source name published to status topic
+- `DiagnosticsPublishSourceDetails`: Source activity details in diagnostics
+- `DiagnosticsWarnWhenNoActiveSources`: WARN level when no active sources
+
+##### 2.5 Active Source Switching (2 tests)
+
+- `RapidSourceSwitching`: Handles rapid transitions between sources
+- `LowerPriorityNoInterference`: Lower priority ignored while higher priority active
+
+#### Running CommandMux Tests
+
+```bash
+./build/somanet/test_command_mux
+```
+
+**Expected Output:**
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║         COMMAND MULTIPLEXER UNIT TESTS                      ║
+║         Multi-Source Arbitration Validation                 ║
+╚══════════════════════════════════════════════════════════════╝
+
+Test Coverage:
+  ✓ Priority-based command selection (3 tests)
+  ✓ Timeout handling (2 tests)
+  ✓ Zero-velocity fallback (2 tests)
+  ✓ Status and diagnostic publishing (3 tests)
+  ✓ Active source switching (2 tests)
+
+Total: 15 unit tests
+
+[==========] Running 15 tests from 1 test suite.
+[----------] Global test environment set-up.
+...
+[  PASSED  ] 15 tests.
+
+✅ All CommandMux tests PASSED
+```
+
+---
+
+### 3. SafetySupervisor Tests (`test_safety_supervisor.cpp`)
 
 **Purpose:** Verify redundant safety layer for velocity validation and watchdog.
 
 #### Test Categories
 
-##### 2.1 Velocity Limit Enforcement (4 tests)
+##### 3.1 Velocity Limit Enforcement (4 tests)
 
 - `ExcessiveLinearVelocityRejected`: Commands >2.0 m/s rejected
 - `ExcessiveAngularVelocityRejected`: Commands >2.0 rad/s rejected
@@ -157,7 +233,7 @@ Total: 15 unit tests
 
 **Compliance:** ISO 13849-1 §7.2 (Output verification)
 
-##### 2.2 Watchdog Timeout Detection (3 tests)
+##### 3.2 Watchdog Timeout Detection (3 tests)
 
 - `WatchdogTriggersOnTimeout`: No commands for 500ms → zero velocity
 - `FreshCommandsResetWatchdog`: Active commands prevent timeout
@@ -165,7 +241,7 @@ Total: 15 unit tests
 
 **Compliance:** ISO 13849-1 §5.2 (Communication loss fail-safe)
 
-##### 2.3 Plausibility Checks (3 tests)
+##### 3.3 Plausibility Checks (3 tests)
 
 - `PlausibilityCheckDetectsDiscrepancy`: Commanded vs actual velocity mismatch
 - `SmallDiscrepanciesTolerated`: Normal friction/inertia tolerated
@@ -173,25 +249,25 @@ Total: 15 unit tests
 
 **Compliance:** ISO 13849-1 §7.7 (Plausibility monitoring)
 
-##### 2.4 Dead-Man Button Integration (2 tests)
+##### 3.4 Dead-Man Button Integration (2 tests)
 
 - `DeadmanReleaseZerosVelocity`: Release → zero velocity
 - `DeadmanActiveAllowsCommands`: Active dead-man → commands pass
 
 **Compliance:** ISO 3691-4 §5.2.1.3
 
-##### 2.5 Parameter Tampering Detection (1 test)
+##### 3.5 Parameter Tampering Detection (1 test)
 
 - `ParameterTamperingDetected`: Validation runs periodically
 
 **Compliance:** ISO 13849-1 §7.9 (Parameter protection)
 
-##### 2.6 Fail-Safe Behavior (2 tests)
+##### 3.6 Fail-Safe Behavior (2 tests)
 
 - `EmergencyStopAlwaysHonored`: E-stop overrides all
 - `FailSafeOnNodeFailure`: System-level watchdog (integration test)
 
-##### 2.7 Diagnostic Reporting (2 tests)
+##### 3.7 Diagnostic Reporting (2 tests)
 
 - `SafetyStateDiagnosticsPublished`: State reported to `/diagnostics`
 - `ViolationsReportedInDiagnostics`: Errors logged
@@ -230,7 +306,7 @@ Total: 17 unit tests
 
 ---
 
-### 3. OdometryCalculator Tests (`test_odometry_calculator.cpp`)
+### 4. OdometryCalculator Tests (`test_odometry_calculator.cpp`)
 
 **Purpose:** Verify wheel odometry calculations and sensor fault detection.
 
@@ -246,7 +322,7 @@ Total: 17 unit tests
 
 ---
 
-### 4. Safety-Critical Integration Tests (`test_safety_critical.cpp`)
+### 5. Safety-Critical Integration Tests (`test_safety_critical.cpp`)
 
 **Purpose:** System-level integration testing.
 
@@ -262,7 +338,7 @@ Total: 17 unit tests
 
 ---
 
-### 5. EtherCAT Failure Tests (`test_ethercat_failures.cpp`)
+### 6. EtherCAT Failure Tests (`test_ethercat_failures.cpp`)
 
 **Purpose:** Verify failure detection and recovery.
 
@@ -497,7 +573,7 @@ colcon build --packages-select somanet
 
 Before ISO 13849-1 audit:
 
-- [ ] All 44+ tests pass
+- [ ] All 59+ tests pass
 - [ ] Code coverage >85% for safety components
 - [ ] Test execution documented (this guide)
 - [ ] Failure modes tested (watchdog, timeout, tampering)

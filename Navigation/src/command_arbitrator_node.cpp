@@ -21,6 +21,7 @@
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <rclcpp/exceptions/exceptions.hpp>
+#include "lifecycle_utils.hpp"
 #include <algorithm>
 #include <chrono>
 #include <memory>
@@ -29,10 +30,6 @@
 #include <functional>
 #include <stdexcept>
 #include <vector>
-#include <cstring>
-#include <cctype>
-#include <cstdlib>
-#include <iostream>
 
 using namespace std::chrono_literals;
 
@@ -47,55 +44,6 @@ using namespace std::chrono_literals;
  * 4. AUTO (100) - Fully autonomous navigation
  * 5. TEST (50) - Testing and validation scripts
  */
-namespace
-{
-bool string_to_bool(const std::string & value)
-{
-  std::string lowered = value;
-  std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-
-  return lowered == "1" || lowered == "true" || lowered == "yes" || lowered == "on";
-}
-
-bool autostart_requested(int argc, char ** argv)
-{
-  bool cli_override = false;
-  bool autostart = false;
-
-  std::vector<const char *> filtered_args;
-  filtered_args.reserve(static_cast<size_t>(argc) + 1);
-  filtered_args.push_back(argv[0]);
-
-  for (int i = 1; i < argc; ++i) {
-    if (std::strcmp(argv[i], "--autostart") == 0) {
-      autostart = true;
-      cli_override = true;
-      continue;
-    }
-    if (std::strcmp(argv[i], "--no-autostart") == 0) {
-      autostart = false;
-      cli_override = true;
-      continue;
-    }
-    filtered_args.push_back(argv[i]);
-  }
-
-  filtered_args.push_back(nullptr);
-  int filtered_argc = static_cast<int>(filtered_args.size()) - 1;
-  rclcpp::init(filtered_argc, filtered_args.data());
-
-  if (!cli_override) {
-    if (const char * env = std::getenv("ULTRABOT_AUTOSTART")) {
-      autostart = string_to_bool(env);
-    }
-  }
-
-  return autostart;
-}
-}  // namespace
-
 class CommandArbitrator : public rclcpp_lifecycle::LifecycleNode
 {
 public:
@@ -682,7 +630,8 @@ int main(int argc, char** argv)
   bool autostart = false;
 
   try {
-    autostart = autostart_requested(argc, argv);
+    // Parse autostart flag and initialize rclcpp (NOTE: rclcpp::init called internally)
+    autostart = ultrabot::lifecycle_utils::autostart_requested(argc, argv);
   } catch (const std::exception& e) {
     std::cerr << "Failed to process autostart arguments: " << e.what() << std::endl;
     return 1;
