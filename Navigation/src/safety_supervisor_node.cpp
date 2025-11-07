@@ -28,6 +28,7 @@
 #include <cmath>
 #include <iostream>
 #include <cstdlib>  // For exit()
+#include <fstream>  // For file existence checks
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include "certified_params_validator.hpp"
 #include "maintenance_mode_manager.hpp"
@@ -162,6 +163,33 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
   RCLCPP_DEBUG(this->get_logger(), "Certified parameters path: %s", cert_params_path.c_str());
   RCLCPP_DEBUG(this->get_logger(), "HMAC secret key path: %s", secret_path.c_str());
 
+  // ========================================================================
+  // DEPLOYMENT VERIFICATION: Check if certification files exist
+  // ========================================================================
+  // These files are REQUIRED for ISO 13849-1 compliance in production
+  // For development/testing, see scripts/generate_certification_hash.py
+  
+  std::ifstream cert_file_check(cert_params_path);
+  if (!cert_file_check.good()) {
+    RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: certified_safety_params.yaml NOT FOUND!");
+    RCLCPP_FATAL(this->get_logger(), "   → Expected path: %s", cert_params_path.c_str());
+    RCLCPP_FATAL(this->get_logger(), "   → This file is REQUIRED for ISO 13849-1 compliance");
+    RCLCPP_FATAL(this->get_logger(), "   → Generate using: python3 scripts/generate_certification_hash.py");
+    RCLCPP_FATAL(this->get_logger(), "   → See BUILD_GUIDE.md section 'Safety Parameter Certification'");
+    return CallbackReturn::FAILURE;
+  }
+  
+  std::ifstream key_file_check(secret_path);
+  if (!key_file_check.good()) {
+    RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: cert.key NOT FOUND!");
+    RCLCPP_FATAL(this->get_logger(), "   → Expected path: %s", secret_path.c_str());
+    RCLCPP_FATAL(this->get_logger(), "   → This HMAC secret key is REQUIRED for parameter validation");
+    RCLCPP_FATAL(this->get_logger(), "   → Generate using: python3 scripts/generate_certification_hash.py");
+    RCLCPP_FATAL(this->get_logger(), "   → SECURITY WARNING: Never commit cert.key to version control!");
+    RCLCPP_FATAL(this->get_logger(), "   → Deploy cert.key separately (encrypted config management recommended)");
+    return CallbackReturn::FAILURE;
+  }
+
   cert_validator_ = std::make_unique<CertifiedParamsValidator>(
       cert_params_path, secret_path, this->get_logger());
 
@@ -169,7 +197,8 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
     RCLCPP_FATAL(this->get_logger(), "❌ CRITICAL: Certified parameters validation FAILED!");
     RCLCPP_FATAL(this->get_logger(), "   → Possible tampering detected or certificate expired");
     RCLCPP_FATAL(this->get_logger(), "   → System CANNOT start - Safety integrity compromised");
-    RCLCPP_FATAL(this->get_logger(), "   → Check: config/certified_safety_params.yaml");
+    RCLCPP_FATAL(this->get_logger(), "   → Regenerate certificate: python3 scripts/generate_certification_hash.py");
+    RCLCPP_FATAL(this->get_logger(), "   → Verify cert.key matches certified_safety_params.yaml");
     return CallbackReturn::FAILURE;
   }
 
@@ -195,6 +224,9 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
       "❌ Exception loading certified parameters: %s", e.what());
     return CallbackReturn::FAILURE;
   }
+
+  // Get certification info for logging
+  auto cert_info = cert_validator_->getCertificationInfo();
 
   RCLCPP_INFO(this->get_logger(), "✅ Certified parameters loaded (Cert: %s, Valid: %s)", 
     cert_info.certificate_id.c_str(), cert_info.valid_until.c_str());

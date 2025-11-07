@@ -15,9 +15,32 @@ sudo apt-get install -y \
     python3-yaml \
     python3-numpy
 
-# Criar o arquivo com a chave secreta HMAC para desenvolvimento
-# Em produção, este arquivo deve ser gerenciado por um sistema de segredos (ex: Vault)
-echo "ThisIsAPlaceholderSecretKeyForDevelopment!ChangeMe!" > src/navigation/config/cert.key
+# ============================================================================
+# CRITICAL: Generate Safety Parameter Certification Files
+# ============================================================================
+# The SafetySupervisor node requires TWO certification files to start:
+# 1. config/certified_safety_params.yaml (already in repo)
+# 2. config/cert.key (HMAC secret key - NOT in repo for security)
+#
+# For DEVELOPMENT/TESTING environments:
+cd ~/ultrabot_ws/src/navigation  # or your workspace path
+
+# Generate cert.key with development secret
+python3 scripts/generate_certification_hash.py
+
+# This creates:
+# - config/cert.key (HMAC secret - DO NOT commit to git!)
+# - Updates certified_safety_params.yaml with new hash
+#
+# For PRODUCTION/DEPLOYMENT:
+# 1. Generate cert.key on secure build server
+# 2. Deploy cert.key via encrypted config management (Vault, Ansible Vault, etc.)
+# 3. NEVER commit cert.key to version control
+# 4. Rotate cert.key periodically (recommended: every 6 months)
+#
+# Without these files, the system will fail with:
+# "DEPLOYMENT ERROR: cert.key NOT FOUND!"
+# ============================================================================
 
 # Opcional: Configurar SROS2 (comunicação criptografada)
 # Recomendado para produção - Ver SROS2_GUIDE.md para detalhes
@@ -255,6 +278,134 @@ ros2 launch somanet launch.py
 - ✅ Autenticação mútua entre nós
 - ✅ Controle de acesso granular
 - ✅ Conformidade com IEC 62443
+
+---
+
+## 🚨 Deployment Troubleshooting
+
+### Error: "DEPLOYMENT ERROR: cert.key NOT FOUND!"
+
+**Causa:** O ficheiro `config/cert.key` não existe no sistema de destino.
+
+**Solução:**
+```bash
+# Development/Testing:
+cd ~/ultrabot_ws/src/navigation
+python3 scripts/generate_certification_hash.py
+
+# Production:
+# 1. Generate cert.key on secure build server
+# 2. Deploy via encrypted configuration management:
+#    - Ansible Vault: ansible-vault encrypt cert.key
+#    - HashiCorp Vault: vault kv put secret/ultrabot cert_key=@cert.key
+#    - Kubernetes Secret: kubectl create secret generic ultrabot-cert --from-file=cert.key
+# 3. Never commit cert.key to git (already in .gitignore)
+```
+
+**Verificação:**
+```bash
+# Check if cert.key exists
+ls -l ~/ultrabot_ws/install/somanet/share/somanet/config/cert.key
+
+# Expected: File should exist with permissions 600 or 400
+# If missing: Run generate_certification_hash.py
+```
+
+### Error: "Certified parameters validation FAILED!"
+
+**Causa:** O hash HMAC em `certified_safety_params.yaml` não corresponde ao conteúdo + `cert.key`.
+
+**Sintomas:**
+- "Possible tampering detected"
+- "Verify cert.key matches certified_safety_params.yaml"
+
+**Solução:**
+```bash
+# Regenerate certification (development only)
+cd ~/ultrabot_ws/src/navigation
+python3 scripts/generate_certification_hash.py
+
+# For production: Contact safety officer
+# - Parameter changes require safety review
+# - New certification must be documented
+# - Audit trail must be updated
+```
+
+**Verificação:**
+```bash
+# Manually verify hash (development)
+python3 -c "
+import hashlib
+import yaml
+
+# Load certified params
+with open('config/certified_safety_params.yaml', 'r') as f:
+    data = yaml.safe_load(f)
+
+# Load secret key
+with open('config/cert.key', 'r') as f:
+    secret = f.read().strip()
+
+# Compute HMAC
+import hmac
+params = data['safety_limits']
+param_str = ';'.join(f'{k}={v["value"]:.6f}' for k, v in sorted(params.items())) + ';'
+computed_hmac = hmac.new(secret.encode(), param_str.encode(), hashlib.sha256).hexdigest()
+
+print(f'Stored HMAC:   {data["certification"]["hmac"]}')
+print(f'Computed HMAC: {computed_hmac}')
+print(f'Match: {computed_hmac == data["certification"]["hmac"]}')
+"
+```
+
+### Error: "Failed to find package 'somanet'"
+
+**Causa:** Workspace não foi sourced ou package não foi compilado.
+
+**Solução:**
+```bash
+# 1. Build package
+cd ~/ultrabot_ws
+colcon build --packages-select somanet
+
+# 2. Source workspace
+source install/setup.bash
+
+# 3. Verify
+ros2 pkg prefix somanet
+```
+
+### Production Deployment Checklist
+
+**Before deploying to production:**
+
+- [ ] `cert.key` generated on secure build server
+- [ ] `cert.key` deployed via encrypted config management (NOT git)
+- [ ] `certified_safety_params.yaml` hash matches cert.key
+- [ ] Certificate not expired (check `valid_until` field)
+- [ ] Safety parameters reviewed and approved
+- [ ] Audit trail updated in certified_safety_params.yaml
+- [ ] cert.key file permissions set to 400 (read-only)
+- [ ] Backup of cert.key stored in secure vault
+- [ ] Deployment documented in change log
+
+**Verification commands:**
+```bash
+# 1. Check cert.key exists and has correct permissions
+ls -l install/somanet/share/somanet/config/cert.key
+# Expected: -r-------- 1 user group ... cert.key
+
+# 2. Verify certification metadata
+grep -A 5 "certification:" install/somanet/share/somanet/config/certified_safety_params.yaml
+
+# 3. Test safety supervisor startup
+ros2 run somanet safety_supervisor_node --ros-args --log-level info
+# Expected: "✅ Certified parameters loaded (Cert: ULTRABOT-..., Valid: ...)"
+
+# 4. Verify no tampering warnings
+ros2 topic echo /diagnostics | grep -i tamper
+# Expected: No output (no tampering detected)
+```
 
 **Documentação completa:** Ver [SROS2_GUIDE.md](SROS2_GUIDE.md)
 
