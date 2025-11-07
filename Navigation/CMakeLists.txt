@@ -341,6 +341,7 @@ if(BUILD_TESTING)
   # Unit test: Command Multiplexer
   ament_add_gtest(test_command_mux 
     test/test_command_mux.cpp
+    src/command_mux_node.cpp
   )
   ament_target_dependencies(test_command_mux
     rclcpp
