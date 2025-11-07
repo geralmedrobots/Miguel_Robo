@@ -194,17 +194,69 @@ local_costmap:
         z_voxels: 16
         max_obstacle_height: 2.0
         mark_threshold: 0
-        observation_sources: scan
+        
+        # ===================================================================
+        # MULTI-SENSOR CONFIGURATION
+        # ===================================================================
+        # Uses merged 2D LiDAR (/scan) + RealSense depth scans + Ouster 3D
+        # Priority: LiDAR (most reliable) > RealSense > Ouster (max range)
+        observation_sources: scan scan_realsense_left scan_realsense_right ouster_pointcloud
+        
+        # Merged 2D LiDAR (front + rear) - PRIMARY SENSOR
         scan:
-          topic: scan
+          topic: /scan
+          sensor_frame: base_link
           max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 3.0
-          raytrace_min_range: 0.0
-          obstacle_max_range: 2.5
-          obstacle_min_range: 0.0
+          raytrace_max_range: 3.5
+          raytrace_min_range: 0.15
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.15
+          inf_is_valid: false
+        
+        # RealSense D455 Front Left (converted to LaserScan)
+        scan_realsense_left:
+          topic: /camera_front_left/scan
+          sensor_frame: camera_front_left_link
+          max_obstacle_height: 1.5
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.3
+          obstacle_max_range: 3.5
+          obstacle_min_range: 0.3
+          inf_is_valid: false
+        
+        # RealSense D455 Front Right (converted to LaserScan)
+        scan_realsense_right:
+          topic: /camera_front_right/scan
+          sensor_frame: camera_front_right_link
+          max_obstacle_height: 1.5
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.3
+          obstacle_max_range: 3.5
+          obstacle_min_range: 0.3
+          inf_is_valid: false
+        
+        # Ouster OS1-64/128 3D LiDAR (voxel filtered)
+        ouster_pointcloud:
+          topic: /ouster/points_filtered
+          sensor_frame: ouster_link
+          max_obstacle_height: 2.5
+          min_obstacle_height: 0.1
+          clearing: True
+          marking: True
+          data_type: "PointCloud2"
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.5
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.5
       
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -229,17 +281,41 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
-        observation_sources: scan
+        
+        # ===================================================================
+        # MULTI-SENSOR CONFIGURATION (Global Costmap)
+        # ===================================================================
+        # For global planning: use long-range sensors (2D LiDAR + Ouster)
+        # RealSense cameras excluded (short range, for local obstacles only)
+        observation_sources: scan ouster_pointcloud
+        
+        # Merged 2D LiDAR (front + rear)
         scan:
-          topic: scan
+          topic: /scan
+          sensor_frame: base_link
           max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 3.0
-          raytrace_min_range: 0.0
-          obstacle_max_range: 2.5
-          obstacle_min_range: 0.0
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.15
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.15
+          inf_is_valid: false
+        
+        # Ouster OS1-64/128 3D LiDAR (long range for global map)
+        ouster_pointcloud:
+          topic: /ouster/points_filtered
+          sensor_frame: ouster_link
+          max_obstacle_height: 2.5
+          min_obstacle_height: 0.1
+          clearing: True
+          marking: True
+          data_type: "PointCloud2"
+          raytrace_max_range: 50.0
+          raytrace_min_range: 0.5
+          obstacle_max_range: 40.0
+          obstacle_min_range: 0.5
       
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -348,7 +424,13 @@ collision_monitor:
     stop_pub_timeout: 2.0
     
     polygons: ["FootprintApproach"]
-    observation_sources: ["scan"]
+    
+    # ===================================================================
+    # MULTI-SENSOR COLLISION MONITORING
+    # ===================================================================
+    # All sensors feed collision detection for maximum safety
+    # Priority: 2D LiDAR > RealSense > Ouster (reliability)
+    observation_sources: ["scan", "scan_realsense_left", "scan_realsense_right"]
     
     FootprintApproach:
       type: "polygon"
@@ -360,12 +442,29 @@ collision_monitor:
       visualize: True
       polygon_pub_topic: "polygon_approach"
     
+    # Merged 2D LiDAR (primary collision sensor)
     scan:
       type: "scan"
-      topic: "scan"
+      topic: "/scan"
       min_height: 0.05
       max_height: 2.0
       obstacles_angle: 1.57  # 90 degrees
+    
+    # RealSense D455 Front Left (redundancy for close obstacles)
+    scan_realsense_left:
+      type: "scan"
+      topic: "/camera_front_left/scan"
+      min_height: 0.1
+      max_height: 1.5
+      obstacles_angle: 0.87  # 50 degrees FOV
+    
+    # RealSense D455 Front Right (redundancy for close obstacles)
+    scan_realsense_right:
+      type: "scan"
+      topic: "/camera_front_right/scan"
+      min_height: 0.1
+      max_height: 1.5
+      obstacles_angle: 0.87  # 50 degrees FOV
 
 # ============================================================================
 # ROBOT-SPECIFIC PARAMETERS (from robot_config.yaml)

@@ -1,0 +1,285 @@
+# ============================================================================
+# ULTRABOT AGV - SENSOR CONFIGURATION
+# ============================================================================
+# Configuration for all robot sensors: LiDAR 2D/3D, RealSense cameras, IMU
+# ISO 3691-4 compliant sensor redundancy for safety-critical AGV operation
+# ============================================================================
+
+# ============================================================================
+# 2D LIDAR SENSORS (Front + Rear Coverage)
+# ============================================================================
+# Front 2D LiDAR (Primary navigation sensor)
+lidar_2d_front:
+  topic: "/scan_front"
+  frame_id: "scan_front_link"
+  driver: "sick_scan"  # or "urg_node" for Hokuyo, "rplidar" for RPLiDAR
+  device: "/dev/ttyUSB0"  # Serial device (or IP for Ethernet models)
+  scan_frequency: 15.0  # Hz
+  angle_min: -2.35619  # -135° in radians
+  angle_max: 2.35619   # +135° in radians
+  range_min: 0.05      # meters
+  range_max: 25.0      # meters
+  enabled: true
+
+# Rear 2D LiDAR (Rear obstacle detection)
+lidar_2d_rear:
+  topic: "/scan_rear"
+  frame_id: "scan_rear_link"
+  driver: "sick_scan"
+  device: "/dev/ttyUSB1"
+  scan_frequency: 15.0
+  angle_min: -2.35619
+  angle_max: 2.35619
+  range_min: 0.05
+  range_max: 25.0
+  enabled: true
+
+# Merged scan (for Nav2 - combines front + rear)
+lidar_2d_merged:
+  topic: "/scan"  # Nav2 expects this topic
+  input_topics:
+    - "/scan_front"
+    - "/scan_rear"
+  output_frame_id: "base_link"
+  merge_method: "closest"  # or "average", "first", "last"
+  angle_increment_tolerance: 0.01
+  range_tolerance: 0.01
+
+# ============================================================================
+# 3D LIDAR SENSOR (Ouster OS1-64/OS1-128)
+# ============================================================================
+ouster_lidar:
+  topic: "/ouster/points"  # PointCloud2
+  frame_id: "ouster_link"
+  driver: "ouster_ros"
+  lidar_ip: "192.168.1.100"  # Ouster sensor IP (configure via Ouster Studio)
+  computer_ip: "192.168.1.10"  # Host computer IP
+  lidar_mode: "1024x10"  # Resolution: 1024x10, 1024x20, 2048x10, 512x10
+  timestamp_mode: "TIME_FROM_PTP_1588"  # or "TIME_FROM_INTERNAL_OSC"
+  point_cloud_frequency: 10.0  # Hz
+  range_min: 0.5  # meters
+  range_max: 120.0  # meters (OS1-128)
+  enabled: true
+
+  # Voxel grid filter (for Nav2 voxel layer)
+  voxel_filter:
+    leaf_size: 0.05  # 5cm voxels
+    min_points_per_voxel: 3
+
+# ============================================================================
+# REALSENSE D455 DEPTH CAMERAS (2x Front Coverage)
+# ============================================================================
+# Front-Left RealSense D455
+realsense_front_left:
+  serial_no: "123456789012"  # Get with: rs-enumerate-devices
+  camera_name: "camera_front_left"
+  base_frame_id: "camera_front_left_link"
+  depth_optical_frame_id: "camera_front_left_depth_optical_frame"
+  
+  # Topics published
+  topics:
+    depth: "/camera_front_left/depth/image_rect_raw"
+    depth_registered: "/camera_front_left/aligned_depth_to_color/image_raw"
+    color: "/camera_front_left/color/image_raw"
+    infra1: "/camera_front_left/infra1/image_rect_raw"
+    infra2: "/camera_front_left/infra2/image_rect_raw"
+    pointcloud: "/camera_front_left/depth/color/points"  # PointCloud2
+  
+  # Camera settings
+  depth_width: 640
+  depth_height: 480
+  depth_fps: 30
+  color_width: 640
+  color_height: 480
+  color_fps: 30
+  
+  # Filters (improve depth quality)
+  filters:
+    decimation: true
+    spatial: true
+    temporal: true
+    hole_filling: true
+  
+  # Depth range
+  min_depth: 0.3  # meters
+  max_depth: 6.0  # meters
+  
+  enabled: true
+
+# Front-Right RealSense D455
+realsense_front_right:
+  serial_no: "210987654321"
+  camera_name: "camera_front_right"
+  base_frame_id: "camera_front_right_link"
+  depth_optical_frame_id: "camera_front_right_depth_optical_frame"
+  
+  topics:
+    depth: "/camera_front_right/depth/image_rect_raw"
+    depth_registered: "/camera_front_right/aligned_depth_to_color/image_raw"
+    color: "/camera_front_right/color/image_raw"
+    infra1: "/camera_front_right/infra1/image_rect_raw"
+    infra2: "/camera_front_right/infra2/image_rect_raw"
+    pointcloud: "/camera_front_right/depth/color/points"
+  
+  depth_width: 640
+  depth_height: 480
+  depth_fps: 30
+  color_width: 640
+  color_height: 480
+  color_fps: 30
+  
+  filters:
+    decimation: true
+    spatial: true
+    temporal: true
+    hole_filling: true
+  
+  min_depth: 0.3
+  max_depth: 6.0
+  
+  enabled: true
+
+# ============================================================================
+# IMU SENSOR (9-DOF IMU for EKF Sensor Fusion)
+# ============================================================================
+imu:
+  topic: "/imu/data"  # sensor_msgs/Imu
+  frame_id: "imu_link"
+  driver: "mpu9250" # or "bno055", "adafruit_bno08x", "vectornav", "xsens_mti"
+  device: "/dev/ttyUSB2"  # Serial port (or I2C)
+  publish_frequency: 100.0  # Hz (high-rate for EKF)
+  
+  # Covariances (tune based on sensor datasheet)
+  orientation_covariance: [0.01, 0.0, 0.0,
+                           0.0, 0.01, 0.0,
+                           0.0, 0.0, 0.01]
+  
+  angular_velocity_covariance: [0.001, 0.0, 0.0,
+                                 0.0, 0.001, 0.0,
+                                 0.0, 0.0, 0.001]
+  
+  linear_acceleration_covariance: [0.01, 0.0, 0.0,
+                                   0.0, 0.01, 0.0,
+                                   0.0, 0.0, 0.01]
+  
+  # Sensor orientation (if mounted differently than URDF assumes)
+  mount_rotation_roll: 0.0   # degrees
+  mount_rotation_pitch: 0.0
+  mount_rotation_yaw: 0.0
+  
+  enabled: true
+
+# ============================================================================
+# TIME SYNCHRONIZATION (NTP/Chrony for Multi-Sensor Fusion)
+# ============================================================================
+# Critical for sensor fusion when using multiple sensors with different clocks
+time_sync:
+  mode: "hardware"  # "hardware" (NTP/Chrony) or "simulation" (use_sim_time)
+  
+  # NTP/Chrony configuration (for hardware deployment)
+  ntp_server: "192.168.1.1"  # Local NTP server (or pool.ntp.org)
+  max_offset_ms: 10.0  # Maximum allowed clock offset (milliseconds)
+  sync_check_enabled: true
+  
+  # use_sim_time (for Gazebo simulation)
+  use_sim_time: false  # Set to true in simulation launch files
+
+# ============================================================================
+# SENSOR DIAGNOSTIC THRESHOLDS (ISO 13849-1 Safety Monitoring)
+# ============================================================================
+diagnostics:
+  lidar_2d_front:
+    min_points_per_scan: 100  # Minimum valid points
+    max_missing_scans: 5      # Consecutive missed scans before fault
+    stale_timeout: 1.0        # seconds
+  
+  lidar_2d_rear:
+    min_points_per_scan: 100
+    max_missing_scans: 5
+    stale_timeout: 1.0
+  
+  ouster_lidar:
+    min_points_per_cloud: 1000
+    max_missing_clouds: 3
+    stale_timeout: 0.5
+  
+  realsense_front_left:
+    min_valid_pixels: 1000  # Minimum non-zero depth pixels
+    max_missing_frames: 10
+    stale_timeout: 1.0
+  
+  realsense_front_right:
+    min_valid_pixels: 1000
+    max_missing_frames: 10
+    stale_timeout: 1.0
+  
+  imu:
+    max_angular_velocity: 10.0  # rad/s (sanity check)
+    max_linear_acceleration: 50.0  # m/s² (sanity check)
+    stale_timeout: 0.1  # High-rate sensor
+
+# ============================================================================
+# POINTCLOUD TO LASERSCAN CONVERSION (For RealSense Depth → 2D Scan)
+# ============================================================================
+# Convert RealSense depth to 2D laser scan for Nav2 obstacle layers
+pointcloud_to_laserscan:
+  enabled: true
+  
+  # Front-left camera conversion
+  front_left:
+    input_topic: "/camera_front_left/depth/color/points"
+    output_topic: "/scan_realsense_left"
+    output_frame_id: "camera_front_left_depth_optical_frame"
+    target_frame: "base_link"
+    min_height: -0.2  # meters (relative to sensor)
+    max_height: 0.5
+    angle_min: -0.785398  # -45° in radians
+    angle_max: 0.785398   # +45°
+    range_min: 0.3
+    range_max: 6.0
+    scan_time: 0.033  # 30 Hz
+  
+  # Front-right camera conversion
+  front_right:
+    input_topic: "/camera_front_right/depth/color/points"
+    output_topic: "/scan_realsense_right"
+    output_frame_id: "camera_front_right_depth_optical_frame"
+    target_frame: "base_link"
+    min_height: -0.2
+    max_height: 0.5
+    angle_min: -0.785398
+    angle_max: 0.785398
+    range_min: 0.3
+    range_max: 6.0
+    scan_time: 0.033
+
+# ============================================================================
+# SENSOR FUSION STRATEGY (for Nav2 Costmap Layers)
+# ============================================================================
+# Priority: 2D LiDAR (primary) > 3D LiDAR (voxel) > RealSense (close range)
+sensor_fusion:
+  costmap_sources:
+    - sensor: "lidar_2d_front"
+      layer: "obstacle_layer"
+      priority: 1  # Highest priority
+      weight: 1.0
+    
+    - sensor: "lidar_2d_rear"
+      layer: "obstacle_layer"
+      priority: 1
+      weight: 1.0
+    
+    - sensor: "ouster_lidar"
+      layer: "voxel_layer"
+      priority: 2
+      weight: 0.8
+    
+    - sensor: "realsense_front_left"
+      layer: "obstacle_layer"  # Via pointcloud_to_laserscan
+      priority: 3
+      weight: 0.6
+    
+    - sensor: "realsense_front_right"
+      layer: "obstacle_layer"
+      priority: 3
+      weight: 0.6

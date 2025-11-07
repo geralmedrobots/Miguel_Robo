@@ -68,6 +68,46 @@ ekf_filter_node:
     odom0_remove_gravitational_acceleration: false
     
     # ========================================================================
+    # IMU INPUT (from 9-DOF IMU sensor)
+    # ========================================================================
+    # Topic: /imu/data (sensor_msgs/Imu)
+    # Source: MPU9250 / BNO055 / VectorNav / Xsens MTi
+    # Rate: 100 Hz
+    # ⚠️ IMPORTANT: Set enable_imu=true in launch_sensors.py to activate
+    imu0: /imu/data
+    imu0_config: [
+      false,  # x position (IMU doesn't provide position)
+      false,  # y position
+      false,  # z position
+      false,  # roll (2D mode - not fused)
+      false,  # pitch (2D mode - not fused)
+      true,   # yaw (orientation from magnetometer/gyro integration)
+      false,  # x velocity (not from IMU)
+      false,  # y velocity
+      false,  # z velocity
+      false,  # roll velocity (2D mode)
+      false,  # pitch velocity (2D mode)
+      true,   # yaw velocity (angular velocity from gyroscope)
+      true,   # x acceleration (from accelerometer)
+      true,   # y acceleration
+      false   # z acceleration (2D mode)
+    ]
+    
+    # Don't use differential mode for IMU (absolute angular velocity)
+    imu0_differential: false
+    
+    # Queue size
+    imu0_queue_size: 10
+    
+    # Remove gravitational acceleration from accelerometer readings
+    # CRITICAL: Must be true for ground robots (gravity = 9.81 m/s² down)
+    imu0_remove_gravitational_acceleration: true
+    
+    # Relative mode (false = trust IMU orientation absolutely)
+    # Set to true if IMU orientation drifts (poor magnetometer calibration)
+    imu0_relative: false
+    
+    # ========================================================================
     # PROCESS NOISE COVARIANCE
     # ========================================================================
     # Models uncertainty in robot motion between measurements
