@@ -1,13 +1,14 @@
 #include "certified_params_validator.hpp"
 #include <ctime>
 #include <stdexcept>
-#include <iostream>
 #include <algorithm>
 #include <cstdlib>
 
-CertifiedParamsValidator::CertifiedParamsValidator(const std::string& config_path,
-    const std::string& secret_path)
-    : config_path_(config_path), secret_path_(secret_path) {
+CertifiedParamsValidator::CertifiedParamsValidator(
+    const std::string& config_path,
+    const std::string& secret_path,
+    rclcpp::Logger logger)
+    : config_path_(config_path), secret_path_(secret_path), logger_(logger) {
 }
 
 bool CertifiedParamsValidator::loadAndValidate() {
@@ -17,7 +18,7 @@ bool CertifiedParamsValidator::loadAndValidate() {
 
         // Extract certification info
         if (!config["certification"]) {
-            std::cerr << "[CertifiedParams] ERROR: No 'certification' section found!" << std::endl;
+            RCLCPP_ERROR(logger_, "No 'certification' section found in config file!");
             return false;
         }
 
@@ -31,7 +32,7 @@ bool CertifiedParamsValidator::loadAndValidate() {
 
         // Extract parameters
         if (!config["safety_limits"]) {
-            std::cerr << "[CertifiedParams] ERROR: No 'safety_limits' section found!" << std::endl;
+            RCLCPP_ERROR(logger_, "No 'safety_limits' section found in config file!");
             return false;
         }
 
@@ -54,17 +55,17 @@ bool CertifiedParamsValidator::loadAndValidate() {
 
         // Validate hash
         if (current_hash != cert_info_.hash) {
-            std::cerr << "[CertifiedParams] ❌ TAMPERING DETECTED!" << std::endl;
-            std::cerr << "  Expected hash: " << cert_info_.hash << std::endl;
-            std::cerr << "  Current hash:  " << current_hash << std::endl;
-            std::cerr << "  → Safety parameters have been MODIFIED without recertification!" << std::endl;
+            RCLCPP_FATAL(logger_, "❌ TAMPERING DETECTED!");
+            RCLCPP_FATAL(logger_, "  Expected hash: %s", cert_info_.hash.c_str());
+            RCLCPP_FATAL(logger_, "  Current hash:  %s", current_hash.c_str());
+            RCLCPP_FATAL(logger_, "  → Safety parameters have been MODIFIED without recertification!");
             return false;
         }
 
         // Validate authenticity with HMAC
         if (!cert["hmac"]) {
-            std::cerr << "[CertifiedParams] ❌ AUTHENTICITY FIELD MISSING" << std::endl;
-            std::cerr << "  Add 'hmac' entry to certification metadata" << std::endl;
+            RCLCPP_FATAL(logger_, "❌ AUTHENTICITY FIELD MISSING");
+            RCLCPP_FATAL(logger_, "  Add 'hmac' entry to certification metadata");
             return false;
         }
 
@@ -72,9 +73,9 @@ bool CertifiedParamsValidator::loadAndValidate() {
         
         std::ifstream secret_file(secret_path_);
         if (!secret_file.is_open()) {
-            std::cerr << "[CertifiedParams] ❌ AUTHENTICATION FAILED" << std::endl;
-            std::cerr << "  Could not open secret file: " << secret_path_ << std::endl;
-            std::cerr << "  → Cannot authenticate certified parameters" << std::endl;
+            RCLCPP_FATAL(logger_, "❌ AUTHENTICATION FAILED");
+            RCLCPP_FATAL(logger_, "  Could not open secret file: %s", secret_path_.c_str());
+            RCLCPP_FATAL(logger_, "  → Cannot authenticate certified parameters");
             return false;
         }
 
@@ -83,9 +84,9 @@ bool CertifiedParamsValidator::loadAndValidate() {
         secret_file.close();
 
         if (secret.empty()) {
-            std::cerr << "[CertifiedParams] ❌ AUTHENTICATION FAILED" << std::endl;
-            std::cerr << "  Secret file is empty: " << secret_path_ << std::endl;
-            std::cerr << "  → Cannot authenticate certified parameters" << std::endl;
+            RCLCPP_FATAL(logger_, "❌ AUTHENTICATION FAILED");
+            RCLCPP_FATAL(logger_, "  Secret file is empty: %s", secret_path_.c_str());
+            RCLCPP_FATAL(logger_, "  → Cannot authenticate certified parameters");
             return false;
         }
 
@@ -93,35 +94,35 @@ bool CertifiedParamsValidator::loadAndValidate() {
 
         if (expected_hmac.size() != computed_hmac.size() ||
             CRYPTO_memcmp(expected_hmac.data(), computed_hmac.data(), expected_hmac.size()) != 0) {
-            std::cerr << "[CertifiedParams] ❌ AUTHENTICITY CHECK FAILED" << std::endl;
-            std::cerr << "  Expected HMAC: " << expected_hmac << std::endl;
-            std::cerr << "  Computed HMAC: " << computed_hmac << std::endl;
-            std::cerr << "  → Possible unauthorized modification with recomputed hash" << std::endl;
+            RCLCPP_FATAL(logger_, "❌ AUTHENTICITY CHECK FAILED");
+            RCLCPP_FATAL(logger_, "  Expected HMAC: %s", expected_hmac.c_str());
+            RCLCPP_FATAL(logger_, "  Computed HMAC: %s", computed_hmac.c_str());
+            RCLCPP_FATAL(logger_, "  → Possible unauthorized modification with recomputed hash");
             return false;
         }
 
         // Check expiration
         if (!isCertificationValid()) {
-            std::cerr << "[CertifiedParams] ⚠️  WARNING: Certification EXPIRED!" << std::endl;
-            std::cerr << "  Valid until: " << cert_info_.valid_until << std::endl;
-            std::cerr << "  → Recertification required!" << std::endl;
+            RCLCPP_WARN(logger_, "⚠️  WARNING: Certification EXPIRED!");
+            RCLCPP_WARN(logger_, "  Valid until: %s", cert_info_.valid_until.c_str());
+            RCLCPP_WARN(logger_, "  → Recertification required!");
             return false;
         }
 
-        std::cout << "[CertifiedParams] ✅ Validation SUCCESS" << std::endl;
-        std::cout << "  Certificate ID: " << cert_info_.certificate_id << std::endl;
-        std::cout << "  Certified by:   " << cert_info_.certified_by << std::endl;
-        std::cout << "  Date:           " << cert_info_.date << std::endl;
-        std::cout << "  Hash:           " << current_hash.substr(0, 16) << "..." << std::endl;
-        std::cout << "  Parameters:     " << params_.size() << " certified" << std::endl;
+        RCLCPP_INFO(logger_, "✅ Validation SUCCESS");
+        RCLCPP_INFO(logger_, "  Certificate ID: %s", cert_info_.certificate_id.c_str());
+        RCLCPP_INFO(logger_, "  Certified by:   %s", cert_info_.certified_by.c_str());
+        RCLCPP_INFO(logger_, "  Date:           %s", cert_info_.date.c_str());
+        RCLCPP_INFO(logger_, "  Hash:           %s...", current_hash.substr(0, 16).c_str());
+        RCLCPP_INFO(logger_, "  Parameters:     %zu certified", params_.size());
 
         return true;
 
     } catch (const YAML::Exception& e) {
-        std::cerr << "[CertifiedParams] YAML error: " << e.what() << std::endl;
+        RCLCPP_ERROR(logger_, "YAML error: %s", e.what());
         return false;
     } catch (const std::exception& e) {
-        std::cerr << "[CertifiedParams] Error: " << e.what() << std::endl;
+        RCLCPP_ERROR(logger_, "Error: %s", e.what());
         return false;
     }
 }
@@ -219,7 +220,7 @@ time_t CertifiedParamsValidator::parseISO8601(const std::string& date_str) const
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     
     if (ss.fail()) {
-        std::cerr << "[CertifiedParams] Warning: Failed to parse date: " << date_str << std::endl;
+        RCLCPP_WARN(logger_, "Failed to parse date: %s (using default +1 year expiration)", date_str.c_str());
         // Return far future to avoid false expiration
         return std::time(nullptr) + (365 * 24 * 3600);  // +1 year
     }

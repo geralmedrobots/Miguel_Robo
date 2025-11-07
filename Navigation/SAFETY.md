@@ -92,7 +92,7 @@ The system follows a **defense-in-depth** approach with multiple independent saf
 │  - Deadman state verification                                │
 │  - Emergency stop logic                                      │
 └──────────────────┬──────────────────────────────────────────┘
-                   │ /wheel_cmd_safe
+                   │ /cmd_vel_safe
                    ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                   DRIVE NODE (main.cpp)                      │

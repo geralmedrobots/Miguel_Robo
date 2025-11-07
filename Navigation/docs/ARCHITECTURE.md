@@ -99,7 +99,7 @@ The ULTRABOT AGV follows a **5-layer safety-critical architecture** designed to 
 ┌────────────────────┐
 │ safety_supervisor  │  Velocity limits, collision check
 └─────────┬──────────┘
-          │ /wheel_cmd_safe
+          │ /cmd_vel_safe
           ↓
 ┌────────────────────┐
 │  somanet_driver    │  EtherCAT motor control (200 Hz)
@@ -204,7 +204,7 @@ map
 │   • Watchdog timeout (500ms)                                      │
 │   • Collision prediction (if enabled)                             │
 └─────────────────────────────┬────────────────────────────────────┘
-                              │ /wheel_cmd_safe
+                              │ /cmd_vel_safe
                               ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │                     somanet_driver                                │
@@ -487,7 +487,7 @@ ULTRABOT uses ROS2 **managed lifecycle nodes** for deterministic startup/shutdow
 | `/cmd_vel_emergency` | Twist | On-demand | E-stop button handler | command_arbitrator |
 | `/cmd_vel_mux` | Twist | Variable | command_mux | command_arbitrator |
 | `/cmd_vel` | Twist | Variable | command_arbitrator | safety_supervisor |
-| `/wheel_cmd_safe` | Twist | Variable | safety_supervisor | somanet_driver |
+| `/cmd_vel_safe` | Twist | Variable | safety_supervisor | somanet_driver |
 | `/odom` | Odometry | 200 Hz | odometry_calculator | robot_localization, nav2 |
 | `/odometry/filtered` | Odometry | 50 Hz | robot_localization (EKF) | nav2_controller |
 | `/scan` | LaserScan | 10 Hz | laserscan_multi_merger | nav2_costmap, slam |

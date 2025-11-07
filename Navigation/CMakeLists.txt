@@ -311,6 +311,33 @@ if(BUILD_TESTING)
     odometry_calculator_lib
   )
   
+  # Unit test: Command Arbitrator
+  ament_add_gtest(test_command_arbitrator 
+    test/test_command_arbitrator.cpp
+  )
+  ament_target_dependencies(test_command_arbitrator
+    rclcpp
+    rclcpp_lifecycle
+    lifecycle_msgs
+    geometry_msgs
+    std_msgs
+    diagnostic_msgs
+  )
+  
+  # Unit test: Safety Supervisor
+  ament_add_gtest(test_safety_supervisor 
+    test/test_safety_supervisor.cpp
+  )
+  ament_target_dependencies(test_safety_supervisor
+    rclcpp
+    rclcpp_lifecycle
+    lifecycle_msgs
+    geometry_msgs
+    nav_msgs
+    std_msgs
+    diagnostic_msgs
+  )
+  
   # Integration test: EtherCAT Failure Detection
   ament_add_gtest(test_ethercat_failures 
     test/test_ethercat_failures.cpp
@@ -345,6 +372,8 @@ if(BUILD_TESTING)
     test_odometry_calculator
     test_mock_driver
     test_safety_critical
+    test_command_arbitrator
+    test_safety_supervisor
     test_ethercat_failures
     DESTINATION lib/${PROJECT_NAME}
   )

@@ -13,6 +13,7 @@
 #include <yaml-cpp/yaml.h>
 #include <optional>
 #include <utility>
+#include <rclcpp/rclcpp.hpp>
 
 /**
  * @brief Validator for certified safety parameters
@@ -56,8 +57,12 @@ public:
      * @brief Constructor
      * @param config_path Path to certified parameters YAML file
      * @param secret_path Path to the file containing the HMAC secret key
+     * @param logger ROS2 logger for integrated logging (optional for standalone use)
      */
-    explicit CertifiedParamsValidator(const std::string& config_path, const std::string& secret_path);
+    explicit CertifiedParamsValidator(
+        const std::string& config_path, 
+        const std::string& secret_path,
+        rclcpp::Logger logger = rclcpp::get_logger("certified_params_validator"));
 
     /**
      * @brief Load and validate certified parameters from file
@@ -108,6 +113,7 @@ private:
     std::map<std::string, CertifiedParam> params_;
     CertificationInfo cert_info_;
     std::string canonical_representation_;
+    rclcpp::Logger logger_;
 
     /**
      * @brief Compute SHA-256 hash

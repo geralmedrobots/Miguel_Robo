@@ -211,7 +211,7 @@ SafetySupervisor::SafetySupervisor()
 
 CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
 {
-  RCLCPP_INFO(this->get_logger(), "Loading certified safety parameters (ISO 13849-1 compliance)...");
+  RCLCPP_DEBUG(this->get_logger(), "Loading certified safety parameters (ISO 13849-1 compliance)...");
 
   std::string package_share_dir;
   try {
@@ -223,10 +223,11 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
 
   const std::string cert_params_path = package_share_dir + "/config/certified_safety_params.yaml";
   const std::string secret_path = package_share_dir + "/config/cert.key";
-  RCLCPP_INFO(this->get_logger(), "Certified parameters path: %s", cert_params_path.c_str());
-  RCLCPP_INFO(this->get_logger(), "HMAC secret key path: %s", secret_path.c_str());
+  RCLCPP_DEBUG(this->get_logger(), "Certified parameters path: %s", cert_params_path.c_str());
+  RCLCPP_DEBUG(this->get_logger(), "HMAC secret key path: %s", secret_path.c_str());
 
-  cert_validator_ = std::make_unique<CertifiedParamsValidator>(cert_params_path, secret_path);
+  cert_validator_ = std::make_unique<CertifiedParamsValidator>(
+      cert_params_path, secret_path, this->get_logger());
 
   if (!cert_validator_->loadAndValidate()) {
     RCLCPP_FATAL(this->get_logger(), "❌ CRITICAL: Certified parameters validation FAILED!");
@@ -259,19 +260,15 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
     return CallbackReturn::FAILURE;
   }
 
-  RCLCPP_INFO(this->get_logger(), "✅ Certified parameters loaded successfully");
-  auto cert_info = cert_validator_->getCertificationInfo();
-  RCLCPP_INFO(this->get_logger(), "   Certificate: %s", cert_info.certificate_id.c_str());
-  RCLCPP_INFO(this->get_logger(), "   Valid until: %s", cert_info.valid_until.c_str());
+  RCLCPP_INFO(this->get_logger(), "✅ Certified parameters loaded (Cert: %s, Valid: %s)", 
+    cert_info.certificate_id.c_str(), cert_info.valid_until.c_str());
 
   const std::string maintenance_audit_path = package_share_dir + "/config/maintenance_audit.yaml";
   const std::string maintenance_pins_path = package_share_dir + "/config/maintenance_pins.yaml";
 
   maintenance_mgr_ = std::make_unique<MaintenanceModeManager>(maintenance_audit_path, maintenance_pins_path);
 
-  RCLCPP_INFO(this->get_logger(), "✅ Maintenance mode manager initialized");
-  RCLCPP_INFO(this->get_logger(), "   Mode: OPERATIONAL (parameters locked)");
-  RCLCPP_INFO(this->get_logger(), "   Audit log: %s", maintenance_audit_path.c_str());
+  RCLCPP_DEBUG(this->get_logger(), "Maintenance mode manager initialized (Mode: OPERATIONAL)");
 
   this->declare_parameter("max_linear_velocity", max_linear_velocity_);
   this->declare_parameter("max_angular_velocity", max_angular_velocity_);
@@ -356,7 +353,7 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
     return CallbackReturn::FAILURE;
   }
 
-  safe_cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("wheel_cmd_safe", rclcpp::QoS(10));
+  safe_cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_safe", rclcpp::QoS(10));
   safety_stop_pub_ = this->create_publisher<std_msgs::msg::Bool>("safety_stop", rclcpp::QoS(10));
   diagnostic_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", rclcpp::QoS(10));
 
@@ -365,23 +362,15 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
   last_published_cmd_ = geometry_msgs::msg::Twist();
 
   RCLCPP_INFO(this->get_logger(),
-    "Safety Supervisor configured - Compliance: ISO 13849-1, ISO 3691-4, IEC 61508");
-  RCLCPP_INFO(this->get_logger(),
-    "Velocity limits: linear=%.2f m/s, angular=%.2f rad/s",
-    max_linear_velocity_, max_angular_velocity_);
-  RCLCPP_INFO(this->get_logger(),
-    "Acceleration limits: linear=%.2f m/s², angular=%.2f rad/s²",
-    max_linear_acceleration_, max_angular_acceleration_);
-  RCLCPP_INFO(this->get_logger(),
-    "Other params: plausibility=%.2f m/s, watchdog=%.2f s, rate_limiting=%s",
-    plausibility_threshold_, watchdog_timeout_, enable_rate_limiting_ ? "enabled" : "disabled");
+    "Safety Supervisor configured | Limits: v_lin=%.2f m/s v_ang=%.2f rad/s | Watchdog=%.2fs",
+    max_linear_velocity_, max_angular_velocity_, watchdog_timeout_);
 
   return CallbackReturn::SUCCESS;
 }
 
 CallbackReturn SafetySupervisor::on_activate(const rclcpp_lifecycle::State&)
 {
-  RCLCPP_INFO(this->get_logger(), "Activating Safety Supervisor");
+  RCLCPP_DEBUG(this->get_logger(), "Activating Safety Supervisor");
 
   if (safe_cmd_pub_) {
     safe_cmd_pub_->on_activate();
@@ -427,13 +416,13 @@ CallbackReturn SafetySupervisor::on_activate(const rclcpp_lifecycle::State&)
   deadman_active_ = false;
   safety_stop_active_ = false;
 
-  RCLCPP_INFO(this->get_logger(), "Safety Supervisor active");
+  RCLCPP_INFO(this->get_logger(), "✅ Safety Supervisor active");
   return CallbackReturn::SUCCESS;
 }
 
 CallbackReturn SafetySupervisor::on_deactivate(const rclcpp_lifecycle::State&)
 {
-  RCLCPP_INFO(this->get_logger(), "Deactivating Safety Supervisor");
+  RCLCPP_DEBUG(this->get_logger(), "Deactivating Safety Supervisor");
 
   if (watchdog_timer_) {
     watchdog_timer_->cancel();
@@ -481,7 +470,7 @@ CallbackReturn SafetySupervisor::on_deactivate(const rclcpp_lifecycle::State&)
 
 CallbackReturn SafetySupervisor::on_cleanup(const rclcpp_lifecycle::State&)
 {
-  RCLCPP_INFO(this->get_logger(), "Cleaning up Safety Supervisor");
+  RCLCPP_DEBUG(this->get_logger(), "Cleaning up Safety Supervisor");
 
   cmd_vel_sub_.reset();
   odom_sub_.reset();
@@ -673,22 +662,16 @@ void SafetySupervisor::faultEventCallback(const std_msgs::msg::String::SharedPtr
         safety_stop_pub_->publish(stop_msg);
       }
 
-      if (!detail.empty()) {
-        RCLCPP_INFO(this->get_logger(), "Safety stop cleared after driver recovery: %s", detail.c_str());
-      } else {
-        RCLCPP_INFO(this->get_logger(), "Safety stop cleared after driver recovery event");
-      }
+      RCLCPP_INFO(this->get_logger(), "✅ Safety stop cleared after driver recovery%s%s", 
+        detail.empty() ? "" : ": ", detail.empty() ? "" : detail.c_str());
     } else {
-      if (!detail.empty()) {
-        RCLCPP_DEBUG(this->get_logger(), "Driver recovery '%s' received with no active safety stop", detail.c_str());
-      } else {
-        RCLCPP_DEBUG(this->get_logger(), "Driver recovery event received while no safety stop active");
-      }
+      RCLCPP_DEBUG(this->get_logger(), "Driver recovery event received (no active safety stop)%s%s",
+        detail.empty() ? "" : ": ", detail.empty() ? "" : detail.c_str());
     }
     return;
   }
 
-  RCLCPP_ERROR(this->get_logger(), "Driver fault event received: %s", payload.c_str());
+  RCLCPP_ERROR(this->get_logger(), "Driver fault event: %s", payload.c_str());
   emergencyStop("Driver fault: " + payload);
 }
 
@@ -705,7 +688,7 @@ void SafetySupervisor::faultEventCallback(const std_msgs::msg::String::SharedPtr
  * Execution: ROS2 timer (separate thread)
  * Frequency: Check every watchdog_timeout_/2 (e.g., every 250ms if timeout=500ms)
  * Action on timeout:
- *   1. Publish cmd_vel=0 to /wheel_cmd_safe
+ *   1. Publish cmd_vel=0 to /cmd_vel_safe
  *   2. Trigger emergency stop
  *   3. Log event for audit trail
  *   4. If repeated (>3x) → Shutdown system
@@ -728,26 +711,10 @@ void SafetySupervisor::watchdogTimerCallback()
       watchdog_timeouts_++;
       
       RCLCPP_ERROR(this->get_logger(), 
-        "╔══════════════════════════════════════════════════════════════╗");
+        "🚨 WATCHDOG TIMEOUT (%.3fs) - INDEPENDENT SAFETY STOP | No cmd_vel for %.3fs", 
+        watchdog_timeout_, elapsed);
       RCLCPP_ERROR(this->get_logger(), 
-        "║  🚨 WATCHDOG TIMEOUT - INDEPENDENT SAFETY STOP 🚨          ║");
-      RCLCPP_ERROR(this->get_logger(), 
-        "╚══════════════════════════════════════════════════════════════╝");
-      RCLCPP_ERROR(this->get_logger(), 
-        "⏱️  No cmd_vel received for %.3f seconds (timeout: %.3f s)", 
-        elapsed, watchdog_timeout_);
-      RCLCPP_ERROR(this->get_logger(), 
-        "   → This indicates:");
-      RCLCPP_ERROR(this->get_logger(), 
-        "     • Operator stopped sending commands");
-      RCLCPP_ERROR(this->get_logger(), 
-        "     • Teleop node crashed");
-      RCLCPP_ERROR(this->get_logger(), 
-        "     • Network communication lost");
-      RCLCPP_ERROR(this->get_logger(), 
-        "     • Main control loop frozen (deadlock/CPU starvation)");
-      RCLCPP_ERROR(this->get_logger(), 
-        "   → INDEPENDENT watchdog executing emergency stop");
+        "   Possible causes: Operator stopped | Node crashed | Network lost | CPU starvation");
       
       // 1. Publish zero velocity command (fail-safe)
       geometry_msgs::msg::Twist zero_cmd;
@@ -761,8 +728,7 @@ void SafetySupervisor::watchdogTimerCallback()
       safe_cmd_pub_->publish(zero_cmd);
       last_published_cmd_ = zero_cmd;
       
-      RCLCPP_WARN(this->get_logger(), 
-        "✅ Published cmd_vel=0 to /wheel_cmd_safe (independent action)");
+      RCLCPP_DEBUG(this->get_logger(), "Published zero velocity to /cmd_vel_safe");
       
       // 2. Trigger emergency stop flag
       emergencyStop("WATCHDOG TIMEOUT - Independent monitoring");
@@ -770,11 +736,8 @@ void SafetySupervisor::watchdogTimerCallback()
       // 3. Check for repeated timeouts (system malfunction)
       if (watchdog_timeouts_ >= 3) {
         RCLCPP_FATAL(this->get_logger(), 
-          "💥 CRITICAL: %lu watchdog timeouts detected!", watchdog_timeouts_);
-        RCLCPP_FATAL(this->get_logger(), 
-          "   → System UNSTABLE - Command stream unreliable");
-        RCLCPP_FATAL(this->get_logger(), 
-          "   → Initiating SYSTEM SHUTDOWN for safety");
+          "💥 CRITICAL: %lu watchdog timeouts - SYSTEM UNSTABLE - INITIATING SHUTDOWN", 
+          watchdog_timeouts_);
         
         // Log to system journal
         system("logger -t ultrabot_safety 'CRITICAL: Multiple watchdog timeouts - system unstable'");
@@ -788,7 +751,7 @@ void SafetySupervisor::watchdogTimerCallback()
     // Reset timeout counter when commands are being received
     if (watchdog_timeouts_ > 0 && elapsed < (watchdog_timeout_ / 2.0)) {
       RCLCPP_INFO(this->get_logger(), 
-        "✅ Command stream restored - Resetting watchdog timeout counter");
+        "✅ Command stream restored - Watchdog timeout counter reset");
       watchdog_timeouts_ = 0;
     }
   }
@@ -831,25 +794,11 @@ void SafetySupervisor::certValidationTimerCallback()
   if (!cert_validator_->loadAndValidate()) {
     // CRITICAL: Parameters have been tampered with during runtime!
     RCLCPP_FATAL(this->get_logger(), 
-      "╔══════════════════════════════════════════════════════════════════╗");
+      "🚨 RUNTIME TAMPERING DETECTED - EMERGENCY SHUTDOWN!");
     RCLCPP_FATAL(this->get_logger(), 
-      "║  🚨 RUNTIME TAMPERING DETECTED! EMERGENCY SHUTDOWN! 🚨          ║");
+      "   Certified parameters hash mismatch | Memory corruption/Security breach/Software bug");
     RCLCPP_FATAL(this->get_logger(), 
-      "╚══════════════════════════════════════════════════════════════════╝");
-    RCLCPP_FATAL(this->get_logger(), 
-      "❌ Certified parameters hash MISMATCH detected during operation!");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   → This indicates:");
-    RCLCPP_FATAL(this->get_logger(), 
-      "     • Memory corruption (hardware fault)");
-    RCLCPP_FATAL(this->get_logger(), 
-      "     • Malicious modification (security breach)");
-    RCLCPP_FATAL(this->get_logger(), 
-      "     • Software bug (parameter overwrite)");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   → System is NO LONGER SAFE to operate");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   → Initiating EMERGENCY STOP and SHUTDOWN");
+      "   System NO LONGER SAFE - Initiating emergency stop and shutdown");
     
     // Trigger emergency stop (stops robot immediately)
     emergencyStop("RUNTIME CERTIFICATE TAMPERING DETECTED");
@@ -912,26 +861,22 @@ void SafetySupervisor::certValidationTimerCallback()
   if (mismatch_detected) {
     // CRITICAL: In-memory parameter differs from certified value!
     RCLCPP_FATAL(this->get_logger(), 
-      "🚨 MEMORY CORRUPTION DETECTED: Parameter '%s' modified!", 
+      "🚨 MEMORY CORRUPTION: Parameter '%s' modified (impossible with param locking)", 
       mismatch_param.c_str());
     RCLCPP_FATAL(this->get_logger(), 
-      "   → In-memory value differs from certified value");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   → This should be IMPOSSIBLE with proper parameter locking");
-    RCLCPP_FATAL(this->get_logger(), 
-      "   → Possible hardware fault or malicious attack");
+      "   Hardware fault or malicious attack - Emergency shutdown");
     
     emergencyStop("PARAMETER MEMORY CORRUPTION");
     rclcpp::shutdown();
     std::exit(EXIT_FAILURE);
   }
   
-  // Validation passed - log once per minute to avoid spam
+  // Validation passed - log periodically to avoid spam
   static int validation_count = 0;
   validation_count++;
-  if (validation_count % 60 == 0) {  // Every 60 seconds
-    RCLCPP_DEBUG(this->get_logger(), 
-      "✅ Runtime certificate validation OK (count: %d)", validation_count);
+  if (validation_count % 300 == 1) {  // Every 5 minutes (first time + every 300s)
+    RCLCPP_INFO(this->get_logger(), 
+      "✅ Runtime certificate validation OK (checks: %d)", validation_count);
   }
 }
 

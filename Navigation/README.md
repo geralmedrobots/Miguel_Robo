@@ -134,7 +134,7 @@ ros2 launch somanet launch_sensors.py \
 │                  SAFETY LAYER                                │
 │  safety_supervisor (ISO 13849-1 Validation)                  │
 └───────────────────────────┬──────────────────────────────────┘
-                            ↓ /wheel_cmd_safe
+                            ↓ /cmd_vel_safe
 ┌──────────────────────────────────────────────────────────────┐
 │               ODOMETRY & FUSION LAYER                        │
 │  odometry_calculator | robot_localization (EKF)              │
@@ -214,7 +214,7 @@ The ULTRABOT integrates **5 sensor categories** for robust perception:
 | `/cmd_vel_nav` | Twist | Nav2 commands |
 | `/cmd_vel_teleop` | Twist | Manual control |
 | `/cmd_vel` | Twist | Command arbitrator output |
-| `/wheel_cmd_safe` | Twist | Safety validated commands |
+| `/cmd_vel_safe` | Twist | Safety validated commands |
 | `/odom` | Odometry | Raw wheel odometry (200 Hz) |
 | `/odom_filtered` | Odometry | EKF filtered odometry (50 Hz) |
 | `/scan` | LaserScan | LIDAR data |
@@ -308,7 +308,7 @@ firefox docs/api/html/index.html
 ros2 topic hz /cmd_vel_nav          # Nav2 output
 ros2 topic hz /cmd_vel_mux          # After mux
 ros2 topic hz /cmd_vel              # After arbitrator
-ros2 topic hz /wheel_cmd_safe       # After safety
+ros2 topic hz /cmd_vel_safe       # After safety
 
 # 2. Check which command source is active
 ros2 topic echo /active_command_source

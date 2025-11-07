@@ -143,7 +143,7 @@ xdg-open docs/api/html/index.html
  * 
  * Implements DriveInterface for hardware abstraction.
  * Publishes odometry at 200 Hz from wheel encoders.
- * Subscribes to /wheel_cmd_safe for velocity commands.
+ * Subscribes to /cmd_vel_safe for velocity commands.
  * 
  * @note Requires ETHERCAT_INTERFACE environment variable
  * @note Real-time performance requires SCHED_FIFO scheduling
@@ -539,14 +539,24 @@ private:
  * 
  * Prevents unauthorized modification of certified safety parameters.
  * Hash is generated offline and stored in certified_safety_params.yaml.
+ * Uses ROS2 logging infrastructure for integrated diagnostics.
  * 
  * @note Required for ISO 13849-1 compliance (tamper detection)
  * @warning Node will refuse to start if hash validation fails
  */
-class CertifiedParamsValidator : public rclcpp::Node
+class CertifiedParamsValidator
 {
 public:
-  explicit CertifiedParamsValidator(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+  /**
+   * @brief Constructor
+   * @param config_path Path to certified_safety_params.yaml
+   * @param secret_path Path to cert.key (HMAC secret)
+   * @param logger ROS2 logger for integrated logging
+   */
+  explicit CertifiedParamsValidator(
+      const std::string& config_path, 
+      const std::string& secret_path,
+      rclcpp::Logger logger = rclcpp::get_logger("certified_params_validator"));
 
   /**
    * @brief Validate all certified parameters
@@ -891,23 +901,31 @@ TEST(OdometryTest, Rotation)
 
 ```cpp
 #include "certified_params_validator.hpp"
+#include <rclcpp/rclcpp.hpp>
 
 int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   
-  auto validator = std::make_shared<CertifiedParamsValidator>();
+  // Create a node for logging context
+  auto node = std::make_shared<rclcpp::Node>("param_validator_test");
   
-  if (!validator->validate())
+  // Create validator with ROS2 logger integration
+  auto validator = std::make_shared<CertifiedParamsValidator>(
+      "/path/to/certified_safety_params.yaml",
+      "/path/to/cert.key",
+      node->get_logger());
+  
+  if (!validator->loadAndValidate())
   {
-    RCLCPP_FATAL(validator->get_logger(), 
+    RCLCPP_FATAL(node->get_logger(), 
                  "Safety parameter validation FAILED! Parameters have been tampered with.");
-    RCLCPP_FATAL(validator->get_logger(), 
+    RCLCPP_FATAL(node->get_logger(), 
                  "REFUSING TO START. Re-certify using scripts/generate_certification_hash.py");
     return 1;
   }
   
-  RCLCPP_INFO(validator->get_logger(), "Safety parameters validated successfully");
+  RCLCPP_INFO(node->get_logger(), "Safety parameters validated successfully");
   
   // Continue with normal startup...
   rclcpp::shutdown();

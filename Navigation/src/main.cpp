@@ -442,7 +442,7 @@ private:
       fault_pub_ = this->create_publisher<std_msgs::msg::String>("safety/fault_events", rclcpp::QoS(10));
 
       cmd_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-         "wheel_cmd_safe", rclcpp::QoS(10),
+         "cmd_vel_safe", rclcpp::QoS(10),
          std::bind(&SomanetLifecycleNode::cmdVelCallback, this, std::placeholders::_1));
 
       tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(shared_from_this());

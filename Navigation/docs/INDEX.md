@@ -45,6 +45,7 @@ This directory contains detailed technical documentation for the ULTRABOT AGV na
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, state machines | 30 min |
 | [API.md](API.md) | API reference, Doxygen setup, class documentation | 25 min |
 | [SENSORS.md](SENSORS.md) | Multi-sensor configuration (LiDAR, cameras, IMU) | 30 min |
+| [TESTING.md](TESTING.md) | Test suite guide, coverage, certification checklist | 25 min |
 
 ### Level 4: Meta Documentation
 
@@ -93,11 +94,12 @@ This directory contains detailed technical documentation for the ULTRABOT AGV na
 
 ## 📊 Documentation Statistics
 
-- **Total Guides:** 14 files
-- **Total Lines:** ~8,500 lines of documentation
-- **Code Examples:** 150+ code snippets
+- **Total Guides:** 15 files
+- **Total Lines:** ~10,000 lines of documentation
+- **Code Examples:** 170+ code snippets
 - **Diagrams:** 25+ ASCII/text diagrams
 - **Configuration Samples:** 40+ YAML examples
+- **Test Cases:** 44+ automated tests
 
 ---
 
@@ -161,6 +163,7 @@ ekf_filter_node         # Sensor fusion (EKF)
 | EtherCAT errors | [BUILD_GUIDE.md](../BUILD_GUIDE.md) | EtherCAT Setup |
 | Safety stop triggered | [SAFETY.md](../SAFETY.md) | Fault Recovery |
 | Time sync issues | [TIME_SYNC_GUIDE.md](../TIME_SYNC_GUIDE.md) | Monitoring |
+| Tests failing | [TESTING.md](TESTING.md) | Debugging Failed Tests |
 
 ---
 
@@ -202,3 +205,4 @@ For questions or contributions, see [README.md](../README.md) - Contributing sec
 - [Architecture →](ARCHITECTURE.md)
 - [API Reference →](API.md)
 - [Sensor Guide →](SENSORS.md)
+- [Testing Guide →](TESTING.md)

@@ -30,12 +30,12 @@
 │  • command_mux: Consolidates autonomous sources              │
 │  • command_arbitrator: Priority-based safety arbitration     │
 └─────────────────────────────────────────────────────────────┘
-                            ↓ /wheel_cmd_safe
+                            ↓ /cmd_vel_safe
 ┌─────────────────────────────────────────────────────────────┐
 │                    SAFETY LAYER                              │
 │  safety_supervisor: ISO 13849-1 compliant monitoring         │
 └─────────────────────────────────────────────────────────────┘
-                            ↓ /wheel_cmd_safe
+                            ↓ /cmd_vel_safe
 ┌─────────────────────────────────────────────────────────────┐
 │                    HARDWARE LAYER                            │
 │  somanet_driver: EtherCAT motor control + odometry           │
@@ -49,8 +49,8 @@
 | **Nav2 Stack** | Path planning, trajectory following, behaviors | Publishes: `/cmd_vel_nav` |
 | **command_mux** | Consolidates Nav2 + teleop sources | Subscribes: `/cmd_vel_nav`, `/cmd_vel_teleop` <br> Publishes: `/cmd_vel_mux` |
 | **command_arbitrator** | Priority-based command selection (ISO 3691-4) | Subscribes: `/cmd_vel_mux` (as `/cmd_vel_auto`), `/cmd_vel_manual`, `/cmd_vel_emergency` <br> Publishes: `/cmd_vel` |
-| **safety_supervisor** | Velocity limit enforcement, fault detection | Subscribes: `/cmd_vel` <br> Publishes: `/wheel_cmd_safe` |
-| **somanet_driver** | EtherCAT motor control, odometry publishing | Subscribes: `/wheel_cmd_safe` <br> Publishes: `/odom`, `/tf (odom→base_link)` |
+| **safety_supervisor** | Velocity limit enforcement, fault detection | Subscribes: `/cmd_vel` <br> Publishes: `/cmd_vel_safe` |
+| **somanet_driver** | EtherCAT motor control, odometry publishing | Subscribes: `/cmd_vel_safe` <br> Publishes: `/odom`, `/tf (odom→base_link)` |
 
 ---
 
@@ -103,7 +103,7 @@ Priority 3 (LOW):     Other Sources
                        │   safety_    │ Velocity limits
                        │  supervisor  │ (50 Hz)
                        └──────┬───────┘
-                              │ /wheel_cmd_safe
+                              │ /cmd_vel_safe
                               ↓
                        ┌──────────────┐
                        │  somanet_    │ EtherCAT I/O
@@ -281,7 +281,7 @@ free_thresh: 0.196
 ros2 topic echo /cmd_vel_nav     # Nav2 output
 ros2 topic echo /cmd_vel_mux     # command_mux output
 ros2 topic echo /cmd_vel         # command_arbitrator output
-ros2 topic echo /wheel_cmd_safe  # safety_supervisor output
+ros2 topic echo /cmd_vel_safe  # safety_supervisor output
 
 # Check active source
 ros2 topic echo /command_mux/status

@@ -110,7 +110,7 @@ ros2 topic list
 
 # Deve incluir:
 # /cmd_vel
-# /wheel_cmd_safe
+# /cmd_vel_safe
 # /safety_stop
 # /deadman_status
 # /diagnostics

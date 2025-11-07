@@ -172,7 +172,7 @@ Each node has a policy file defining allowed operations:
       
       <!-- Allowed publications -->
       <topics publish="ALLOW">
-        <topic>wheel_cmd_safe</topic>
+        <topic>cmd_vel_safe</topic>
         <topic>safety_stop</topic>
       </topics>
     </profile>
@@ -182,7 +182,7 @@ Each node has a policy file defining allowed operations:
 
 **Key Points:**
 - `safety_supervisor` can only subscribe to specific topics
-- It can only publish to `wheel_cmd_safe` and `safety_stop`
+- It can only publish to `cmd_vel_safe` and `safety_stop`
 - Any other topic access is **denied** by DDS Security
 
 ---
@@ -346,8 +346,8 @@ sudo tcpdump -i any -X port 7400
 
 Try to publish to a restricted topic:
 ```bash
-# This should FAIL (teleop_joy not allowed to publish to wheel_cmd_safe)
-ros2 topic pub /wheel_cmd_safe geometry_msgs/msg/Twist \
+# This should FAIL (teleop_joy not allowed to publish to cmd_vel_safe)
+ros2 topic pub /cmd_vel_safe geometry_msgs/msg/Twist \
   "{linear: {x: 1.0}}"
 
 # Expected error:
