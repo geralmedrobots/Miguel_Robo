@@ -124,9 +124,12 @@ void EthercatDriver::cyclicTask() {
 
     uint32_t cycle_counter = 0;
     auto start_time = std::chrono::steady_clock::now();
+    const auto cycle_period = std::chrono::microseconds(5000);
+    auto next_cycle_deadline = start_time + cycle_period;
+    uint32_t consecutive_overruns = 0;
 
     while (running_) {
-        auto cycle_start = std::chrono::high_resolution_clock::now();
+        auto cycle_start = std::chrono::steady_clock::now();
 
         // Send process data
         ec_send_processdata();
@@ -184,15 +187,32 @@ void EthercatDriver::cyclicTask() {
         }
 
         // Calculate cycle time
-        auto cycle_end = std::chrono::high_resolution_clock::now();
+        auto cycle_end = std::chrono::steady_clock::now();
         auto cycle_duration = std::chrono::duration_cast<std::chrono::microseconds>(
-            cycle_end - cycle_start).count();
-        avg_cycle_time_us_ = (avg_cycle_time_us_ * 0.99) + (cycle_duration * 0.01);
+            cycle_end - cycle_start);
+        avg_cycle_time_us_ = (avg_cycle_time_us_ * 0.99) + (cycle_duration.count() * 0.01);
 
         cycle_count_++;
 
-        // Sleep to maintain 200 Hz (5000 us)
-        std::this_thread::sleep_for(std::chrono::microseconds(5000 - cycle_duration));
+        if (cycle_end < next_cycle_deadline) {
+            consecutive_overruns = 0;
+            std::this_thread::sleep_until(next_cycle_deadline);
+            next_cycle_deadline += cycle_period;
+        } else {
+            const auto overrun = std::chrono::duration_cast<std::chrono::microseconds>(
+                cycle_end - next_cycle_deadline);
+            cycle_overrun_count_++;
+            consecutive_overruns++;
+
+            if (consecutive_overruns == 1 || (consecutive_overruns % 100) == 0) {
+                RCLCPP_WARN(logger_,
+                    "EtherCAT loop overrun detected (missed deadline by %ld µs, consecutive=%u)",
+                    static_cast<long>(overrun.count()), consecutive_overruns);
+            }
+
+            // Resynchronize the next deadline to avoid cumulative drift.
+            next_cycle_deadline = cycle_end + cycle_period;
+        }
     }
 
     RCLCPP_INFO(logger_, "Cyclic task stopped");

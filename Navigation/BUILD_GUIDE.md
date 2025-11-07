@@ -300,7 +300,18 @@ python3 scripts/generate_certification_hash.py
 #    - HashiCorp Vault: vault kv put secret/ultrabot cert_key=@cert.key
 #    - Kubernetes Secret: kubectl create secret generic ultrabot-cert --from-file=cert.key
 # 3. Never commit cert.key to git (already in .gitignore)
+
+# Zero-touch deployments (CI/CD):
+# - Encode the secret and inject as environment variable
+export SAFETY_SUPERVISOR_CERT_KEY_B64=$(base64 -w0 config/cert.key)
+
+# - Or point to an external secret file managed by the host OS
+export SAFETY_SUPERVISOR_CERT_KEY_PATH=/etc/ultrabot/cert.key
 ```
+
+> 💡 **Dica:** também pode definir o parâmetro ROS `cert_key_path_override`
+> (no `SafetySupervisor`) para apontar diretamente para um ficheiro de
+> segredo gerido fora do workspace.
 
 **Verificação:**
 ```bash
@@ -308,7 +319,7 @@ python3 scripts/generate_certification_hash.py
 ls -l ~/ultrabot_ws/install/somanet/share/somanet/config/cert.key
 
 # Expected: File should exist with permissions 600 or 400
-# If missing: Run generate_certification_hash.py
+# If missing: Run generate_certification_hash.py or set SAFETY_SUPERVISOR_CERT_KEY_B64
 ```
 
 ### Error: "Certified parameters validation FAILED!"

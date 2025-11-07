@@ -27,16 +27,93 @@
 #include <memory>
 #include <cmath>
 #include <iostream>
-#include <cstdlib>  // For exit()
+#include <cstdlib>
 #include <fstream>  // For file existence checks
 #include <functional>
 #include <cctype>
+#include <filesystem>
+#include <optional>
+#include <array>
+#include <atomic>
+#include <system_error>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/parameter.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include "certified_params_validator.hpp"
 #include "maintenance_mode_manager.hpp"
 #include "lifecycle_utils.hpp"
+#include <lifecycle_msgs/msg/transition.hpp>
+
+namespace {
+
+std::optional<std::string> getEnvironmentVariable(const std::string& name)
+{
+  if (name.empty()) {
+    return std::nullopt;
+  }
+
+  const char* value = std::getenv(name.c_str());
+  if (value == nullptr || value[0] == '\0') {
+    return std::nullopt;
+  }
+  return std::string(value);
+}
+
+std::string decodeBase64(const std::string& input)
+{
+  static const std::array<int8_t, 256> decoding_table = []() {
+    std::array<int8_t, 256> table{};
+    table.fill(-1);
+    const std::string alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < alphabet.size(); ++i) {
+      table[static_cast<uint8_t>(alphabet[i])] = static_cast<int8_t>(i);
+    }
+    return table;
+  }();
+
+  std::string output;
+  output.reserve(input.size() * 3 / 4);
+
+  int value = 0;
+  int bits_collected = -8;
+
+  for (unsigned char ch : input) {
+    if (std::isspace(ch)) {
+      continue;
+    }
+    if (ch == '=') {
+      break;
+    }
+
+    const int8_t decoded = decoding_table[static_cast<size_t>(ch)];
+    if (decoded < 0) {
+      throw std::runtime_error("Invalid base64 character encountered");
+    }
+
+    value = (value << 6) + decoded;
+    bits_collected += 6;
+    if (bits_collected >= 0) {
+      output.push_back(static_cast<char>((value >> bits_collected) & 0xFF));
+      bits_collected -= 8;
+    }
+  }
+
+  return output;
+}
+
+std::filesystem::path defaultRosHome()
+{
+  if (auto ros_home = getEnvironmentVariable("ROS_HOME")) {
+    return std::filesystem::path(*ros_home);
+  }
+  if (auto home = getEnvironmentVariable("HOME")) {
+    return std::filesystem::path(*home) / ".ros";
+  }
+  return std::filesystem::temp_directory_path();
+}
+
+}  // namespace
 
 using namespace std::chrono_literals;
 
@@ -67,6 +144,9 @@ private:
   bool checkPlausibility();
   void publishSafeCommand(const geometry_msgs::msg::Twist& cmd);
   void emergencyStop(const std::string& reason);
+  void requestControlledShutdown(const std::string& reason);
+  std::optional<std::filesystem::path> materializeSecretToRuntimeFile(
+    const std::string& secret_contents, const std::string& file_hint);
   
   // Helper functions
   double applyRateLimit(double target, double current, double max_rate, double dt);
@@ -108,6 +188,8 @@ private:
   int consecutive_cert_validation_failures_;
   bool cert_failure_window_active_;
   rclcpp::Time cert_failure_window_start_;
+  std::atomic<bool> controlled_shutdown_initiated_;
+  std::optional<std::filesystem::path> ephemeral_secret_path_;
 
   // Publishers and subscribers
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr safe_cmd_pub_;
@@ -160,7 +242,9 @@ SafetySupervisor::SafetySupervisor()
     cert_validation_grace_period_(5.0),
     cert_validation_max_retries_(3),
     consecutive_cert_validation_failures_(0),
-    cert_failure_window_active_(false)
+    cert_failure_window_active_(false),
+    controlled_shutdown_initiated_(false),
+    ephemeral_secret_path_(std::nullopt)
 {
   RCLCPP_DEBUG(this->get_logger(), "SafetySupervisor lifecycle node constructed");
 }
@@ -178,17 +262,41 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
   }
 
   const std::string cert_params_path = package_share_dir + "/config/certified_safety_params.yaml";
-  const std::string secret_path = package_share_dir + "/config/cert.key";
+  std::string secret_path = package_share_dir + "/config/cert.key";
   RCLCPP_DEBUG(this->get_logger(), "Certified parameters path: %s", cert_params_path.c_str());
   RCLCPP_DEBUG(this->get_logger(), "HMAC secret key path: %s", secret_path.c_str());
 
   this->declare_parameter("allow_certified_param_bypass", allow_cert_bypass_);
   this->declare_parameter("cert_validation_grace_period", cert_validation_grace_period_);
   this->declare_parameter("cert_validation_max_retries", cert_validation_max_retries_);
+  std::string cert_key_path_override;
+  std::string cert_key_env_var = "SAFETY_SUPERVISOR_CERT_KEY_B64";
+  std::string cert_key_path_env_var = "SAFETY_SUPERVISOR_CERT_KEY_PATH";
+  this->declare_parameter("cert_key_path_override", cert_key_path_override);
+  this->declare_parameter("cert_key_env_var", cert_key_env_var);
+  this->declare_parameter("cert_key_path_env_var", cert_key_path_env_var);
 
   this->get_parameter("allow_certified_param_bypass", allow_cert_bypass_);
   this->get_parameter("cert_validation_grace_period", cert_validation_grace_period_);
   this->get_parameter("cert_validation_max_retries", cert_validation_max_retries_);
+  this->get_parameter("cert_key_path_override", cert_key_path_override);
+  this->get_parameter("cert_key_env_var", cert_key_env_var);
+  this->get_parameter("cert_key_path_env_var", cert_key_path_env_var);
+
+  ephemeral_secret_path_.reset();
+  controlled_shutdown_initiated_ = false;
+
+  if (!cert_key_path_override.empty()) {
+    secret_path = cert_key_path_override;
+    RCLCPP_INFO(this->get_logger(),
+      "Using cert.key override from parameter: %s", secret_path.c_str());
+  }
+
+  if (auto env_override = getEnvironmentVariable(cert_key_path_env_var)) {
+    secret_path = *env_override;
+    RCLCPP_INFO(this->get_logger(),
+      "Using cert.key path from environment variable %s", cert_key_path_env_var.c_str());
+  }
 
   if (cert_validation_grace_period_ < 0.0) {
     RCLCPP_WARN(this->get_logger(),
@@ -223,8 +331,39 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
       "⚠️  certified_safety_params.yaml missing. Falling back to built-in safe defaults (bypass enabled)");
   }
 
-  std::ifstream key_file_check(secret_path);
-  const bool has_key_file = key_file_check.good();
+  bool has_key_file = false;
+  {
+    std::ifstream key_file_check(secret_path);
+    has_key_file = key_file_check.good();
+  }
+
+  if (!has_key_file) {
+    if (auto encoded_secret = getEnvironmentVariable(cert_key_env_var)) {
+      try {
+        const auto decoded_secret = decodeBase64(*encoded_secret);
+        if (!decoded_secret.empty()) {
+          auto runtime_secret = materializeSecretToRuntimeFile(decoded_secret, secret_path);
+          if (runtime_secret) {
+            secret_path = runtime_secret->string();
+            has_key_file = true;
+            RCLCPP_INFO(this->get_logger(),
+              "Loaded cert.key from environment variable %s", cert_key_env_var.c_str());
+          } else {
+            RCLCPP_ERROR(this->get_logger(),
+              "Failed to persist cert.key material derived from %s", cert_key_env_var.c_str());
+          }
+        } else {
+          RCLCPP_ERROR(this->get_logger(),
+            "Decoded cert.key from %s is empty", cert_key_env_var.c_str());
+        }
+      } catch (const std::exception& e) {
+        RCLCPP_ERROR(this->get_logger(),
+          "Unable to decode cert.key from environment variable %s: %s",
+          cert_key_env_var.c_str(), e.what());
+      }
+    }
+  }
+
   if (!has_key_file) {
     if (!allow_cert_bypass_) {
       RCLCPP_FATAL(this->get_logger(), "❌ DEPLOYMENT ERROR: cert.key NOT FOUND!");
@@ -240,7 +379,6 @@ CallbackReturn SafetySupervisor::on_configure(const rclcpp_lifecycle::State&)
   }
 
   cert_file_check.close();
-  key_file_check.close();
 
   if (!allow_cert_bypass_) {
     cert_validator_ = std::make_unique<CertifiedParamsValidator>(
@@ -539,6 +677,17 @@ CallbackReturn SafetySupervisor::on_cleanup(const rclcpp_lifecycle::State&)
 
   param_callback_handle_.reset();
 
+  if (ephemeral_secret_path_) {
+    std::error_code ec;
+    std::filesystem::remove(*ephemeral_secret_path_, ec);
+    if (ec) {
+      RCLCPP_WARN(this->get_logger(),
+        "Failed to remove runtime cert.key %s: %s",
+        ephemeral_secret_path_->string().c_str(), ec.message().c_str());
+    }
+    ephemeral_secret_path_.reset();
+  }
+
   return CallbackReturn::SUCCESS;
 }
 
@@ -554,6 +703,17 @@ CallbackReturn SafetySupervisor::on_shutdown(const rclcpp_lifecycle::State& stat
   }
   if (diagnostic_pub_ && diagnostic_pub_->is_activated()) {
     diagnostic_pub_->on_deactivate();
+  }
+
+  if (ephemeral_secret_path_) {
+    std::error_code ec;
+    std::filesystem::remove(*ephemeral_secret_path_, ec);
+    if (ec) {
+      RCLCPP_WARN(this->get_logger(),
+        "Failed to remove runtime cert.key %s during shutdown: %s",
+        ephemeral_secret_path_->string().c_str(), ec.message().c_str());
+    }
+    ephemeral_secret_path_.reset();
   }
 
   return CallbackReturn::SUCCESS;
@@ -785,17 +945,15 @@ void SafetySupervisor::watchdogTimerCallback()
       
       // 3. Check for repeated timeouts (system malfunction)
       if (watchdog_timeouts_ >= 3) {
-        RCLCPP_FATAL(this->get_logger(), 
-          "💥 CRITICAL: %lu watchdog timeouts - SYSTEM UNSTABLE - INITIATING SHUTDOWN", 
+        RCLCPP_FATAL(this->get_logger(),
+          "💥 CRITICAL: %lu watchdog timeouts - SYSTEM UNSTABLE - INITIATING SHUTDOWN",
           watchdog_timeouts_);
-        
+
         // Additional fatal log for external monitoring systems
-        RCLCPP_FATAL(this->get_logger(), 
+        RCLCPP_FATAL(this->get_logger(),
           "ULTRABOT_SAFETY_EVENT: Multiple watchdog timeouts detected - system unstable");
-        
-        // Shutdown ROS2
-        rclcpp::shutdown();
-        std::exit(EXIT_FAILURE);
+
+        requestControlledShutdown("Multiple watchdog timeouts");
       }
     }
   } else {
@@ -880,8 +1038,7 @@ void SafetySupervisor::certValidationTimerCallback()
       RCLCPP_FATAL(this->get_logger(),
         "   Failure reason: %s", failure_reason.c_str());
       emergencyStop("RUNTIME CERTIFICATE VALIDATION FAILURE");
-      rclcpp::shutdown();
-      std::exit(EXIT_FAILURE);
+      requestControlledShutdown("Persistent certification validation failure");
     }
 
     return;
@@ -955,8 +1112,7 @@ void SafetySupervisor::certValidationTimerCallback()
       "   Hardware fault or malicious attack - Emergency shutdown");
     
     emergencyStop("PARAMETER MEMORY CORRUPTION");
-    rclcpp::shutdown();
-    std::exit(EXIT_FAILURE);
+    requestControlledShutdown("Certified parameter memory mismatch");
   }
   
   // Validation passed - log periodically to avoid spam
@@ -1299,6 +1455,94 @@ void SafetySupervisor::emergencyStop(const std::string& reason)
   
   RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
     "EMERGENCY STOP: %s", reason.c_str());
+}
+
+void SafetySupervisor::requestControlledShutdown(const std::string& reason)
+{
+  const bool already_requested = controlled_shutdown_initiated_.exchange(true);
+  if (already_requested) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "Controlled shutdown already in progress (reason: %s)", reason.c_str());
+    return;
+  }
+
+  RCLCPP_FATAL(this->get_logger(),
+    "Initiating controlled lifecycle shutdown due to: %s", reason.c_str());
+  auto current_state = this->get_current_state().id();
+
+  if (current_state == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    if (!this->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE)) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Failed to deactivate during controlled shutdown request");
+    }
+    current_state = this->get_current_state().id();
+  }
+
+  if (current_state == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+    if (!this->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CLEANUP)) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Failed to cleanup during controlled shutdown request");
+    }
+    current_state = this->get_current_state().id();
+  }
+
+  if (current_state != lifecycle_msgs::msg::State::PRIMARY_STATE_FINALIZED) {
+    if (!this->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_SHUTDOWN)) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Failed to finalize SafetySupervisor during controlled shutdown request");
+    }
+  }
+}
+
+std::optional<std::filesystem::path> SafetySupervisor::materializeSecretToRuntimeFile(
+  const std::string& secret_contents, const std::string& file_hint)
+{
+  try {
+    const std::filesystem::path hint_path(file_hint);
+    const std::filesystem::path runtime_dir = defaultRosHome() / "somanet";
+    std::error_code ec;
+    std::filesystem::create_directories(runtime_dir, ec);
+    if (ec) {
+      RCLCPP_ERROR(this->get_logger(),
+        "Failed to create runtime secret directory %s: %s",
+        runtime_dir.string().c_str(), ec.message().c_str());
+      return std::nullopt;
+    }
+
+    std::filesystem::path target = runtime_dir / hint_path.filename();
+    {
+      std::ofstream secret_file(target, std::ios::binary | std::ios::trunc);
+      if (!secret_file.is_open()) {
+        RCLCPP_ERROR(this->get_logger(),
+          "Unable to open runtime secret file for writing: %s", target.string().c_str());
+        return std::nullopt;
+      }
+      secret_file.write(secret_contents.data(), static_cast<std::streamsize>(secret_contents.size()));
+      secret_file.flush();
+      if (!secret_file.good()) {
+        RCLCPP_ERROR(this->get_logger(),
+          "Failed while writing cert.key material to %s", target.string().c_str());
+        return std::nullopt;
+      }
+    }
+
+    std::error_code perm_ec;
+    std::filesystem::permissions(target,
+      std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+      std::filesystem::perm_options::replace, perm_ec);
+    if (perm_ec) {
+      RCLCPP_WARN(this->get_logger(),
+        "Unable to set strict permissions on %s: %s",
+        target.string().c_str(), perm_ec.message().c_str());
+    }
+
+    ephemeral_secret_path_ = target;
+    return target;
+  } catch (const std::exception& e) {
+    RCLCPP_ERROR(this->get_logger(),
+      "Failed to prepare runtime cert.key material: %s", e.what());
+    return std::nullopt;
+  }
 }
 
 int main(int argc, char** argv)
