@@ -28,8 +28,10 @@
   <depend>joy</depend>
   
   <!-- Dependencies for certified parameter validation (ISO 13849-1 §5.2.2) -->
-  <depend>libssl-dev</depend>
-  <depend>libyaml-cpp-dev</depend>
+  <build_depend>libssl-dev</build_depend>
+  <build_export_depend>libssl-dev</build_export_depend>
+  <build_depend>libyaml-cpp-dev</build_depend>
+  <build_export_depend>libyaml-cpp-dev</build_export_depend>
 
   <!-- ========================================================================
        NAV2 INTEGRATION DEPENDENCIES
@@ -52,7 +54,6 @@
   <!-- SLAM dependencies -->
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>cartographer_ros</exec_depend>
-  <exec_depend>cartographer</exec_depend>
   
   <!-- Sensor fusion (EKF) -->
   <exec_depend>robot_localization</exec_depend>

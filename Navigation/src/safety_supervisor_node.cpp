@@ -43,6 +43,7 @@
 #include "maintenance_mode_manager.hpp"
 #include "lifecycle_utils.hpp"
 #include <lifecycle_msgs/msg/transition.hpp>
+#include <mutex>
 
 namespace {
 
@@ -163,6 +164,7 @@ private:
   bool enable_rate_limiting_;     // Enable acceleration limiting
 
   // State variables
+  std::mutex state_mutex_;
   bool deadman_active_;
   bool safety_stop_active_;
   std::string safety_stop_reason_;
@@ -725,6 +727,7 @@ void SafetySupervisor::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr
     return;
   }
 
+  std::lock_guard<std::mutex> lock(state_mutex_);
   cmd_received_count_++;
   last_cmd_time_ = this->now();
   last_cmd_vel_ = *msg;
@@ -794,12 +797,14 @@ void SafetySupervisor::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr
 
 void SafetySupervisor::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
+  std::lock_guard<std::mutex> lock(state_mutex_);
   last_odom_ = *msg;
   odom_received_ = true;
 }
 
 void SafetySupervisor::deadmanCallback(const std_msgs::msg::Bool::SharedPtr msg)
 {
+  std::lock_guard<std::mutex> lock(state_mutex_);
   bool previous_state = deadman_active_;
   deadman_active_ = msg->data;
   
@@ -909,6 +914,7 @@ void SafetySupervisor::watchdogTimerCallback()
     return;
   }
 
+  std::lock_guard<std::mutex> lock(state_mutex_);
   auto now = this->now();
   auto elapsed = (now - last_cmd_time_).seconds();
   
@@ -1431,6 +1437,7 @@ void SafetySupervisor::publishSafeCommand(const geometry_msgs::msg::Twist& cmd)
 
 void SafetySupervisor::emergencyStop(const std::string& reason)
 {
+  // Note: state_mutex_ is already locked by calling functions
   safety_stop_active_ = true;
   safety_stop_reason_ = reason;
   

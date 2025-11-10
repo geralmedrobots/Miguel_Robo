@@ -28,8 +28,9 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(joy REQUIRED)
 
 # Dependencies for certified parameter validation (ISO 13849-1 §5.2.2)
-find_package(OpenSSL REQUIRED)  # SHA-256 cryptographic hashing
-find_package(yaml-cpp REQUIRED)  # YAML configuration parsing
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OPENSSL REQUIRED IMPORTED_TARGET OpenSSL::SSL OpenSSL::Crypto)
+pkg_check_modules(YAML_CPP REQUIRED IMPORTED_TARGET yaml-cpp)
 
 # Try to find SOEM (EtherCAT library)
 # Note: SOEM may not have a proper CMake config, so we try multiple approaches
@@ -56,7 +57,7 @@ if(SOEM_INCLUDE_DIR AND SOEM_LIBRARY)
   add_compile_definitions(HAVE_SOEM)
 else()
   message(WARNING "SOEM not found - EtherCAT functionality may not work")
-  message(WARNING "Install with: sudo apt-get install ros-${ROS_DISTRO}-soem")
+  message(WARNING "Install with: sudo apt-get install soem or check your installation path")
 endif()
 
 # Include directories
@@ -234,9 +235,8 @@ install(DIRECTORY include/
 
 # Install config files (including behavior trees)
 install(DIRECTORY
-  config
-  DESTINATION share/${PROJECT_NAME}/
-  PATTERN "*.xml" PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+  config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 # Install launch files
@@ -341,7 +341,6 @@ if(BUILD_TESTING)
   # Unit test: Command Multiplexer
   ament_add_gtest(test_command_mux 
     test/test_command_mux.cpp
-    src/command_mux_node.cpp
   )
   ament_target_dependencies(test_command_mux
     rclcpp
@@ -349,6 +348,7 @@ if(BUILD_TESTING)
     std_msgs
     diagnostic_msgs
   )
+  target_link_libraries(test_command_mux command_mux_node)
   
   # Integration test: EtherCAT Failure Detection
   ament_add_gtest(test_ethercat_failures 
